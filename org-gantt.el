@@ -1058,6 +1058,64 @@ Return nil, if stats-cookie is not readable."
              (number-to-string progress)))
           (t nil))))
 
+(defun org-gantt-will-render-anything-p (item default-date item-level)
+  "Check if ITEM or its descendants will render anything.
+ITEM-LEVEL is the level at which ITEM would be rendered."
+  (let* ((start (gethash org-gantt-start-prop item))
+         (end (gethash org-gantt-end-prop item))
+         (tags (gethash org-gantt-tags-prop item))
+         (parent-tags (gethash org-gantt-parent-tags-prop item))
+         (item-subelements (gethash :subelements item))
+         (ignore-tags (plist-get org-gantt-options :ignore-tags))
+         (use-tags (plist-get org-gantt-options :use-tags))
+         (no-date-headlines (plist-get org-gantt-options :no-date-headlines))
+         (incomplete-date-headlines (plist-get org-gantt-options :incomplete-date-headlines))
+         (maxlevel (plist-get org-gantt-options :maxlevel))
+         (ignore-this nil)
+         (ignore-only-this nil))
+
+    ;; Replicate ignore-this logic from org-gantt-info-to-pgfgantt
+    (cond ((and (not start) (not end))
+           (when (equal no-date-headlines 'ignore)
+             (setq ignore-this t)))
+          ((not end)
+           (when (equal incomplete-date-headlines 'ignore)
+             (setq ignore-this t)))
+          ((not start)
+           (when (equal incomplete-date-headlines 'ignore)
+             (setq ignore-this t))))
+
+    (when (and ignore-tags (org-gantt-is-in-tags tags ignore-tags))
+      (setq ignore-this t))
+
+    ;; Replicate ignore-only-this logic
+    (when (and use-tags
+               (not (org-gantt-is-in-tags tags use-tags))
+               (not (org-gantt-is-in-tags parent-tags use-tags)))
+      (setq ignore-only-this t))
+
+    ;; Check if anything will render:
+    ;; - If ignore-this is true, nothing renders
+    ;; - If ignore-only-this is false, the item itself renders
+    ;; - If ignore-only-this is true, check if children render
+    ;;   (children only render if level allows and some descendant is visible)
+    (and (not ignore-this)
+         (or (not ignore-only-this)
+             (and item-subelements
+                  (or (not maxlevel) (< item-level maxlevel))
+                  (cl-some (lambda (child)
+                             (org-gantt-will-render-anything-p
+                              child default-date (+ item-level 1)))
+                           item-subelements))))))
+
+(defun org-gantt-has-visible-children-p (subelements default-date children-level)
+  "Check if SUBELEMENTS contains any child that will actually render.
+CHILDREN-LEVEL is the level at which the children would be rendered."
+  (and subelements
+       (cl-some (lambda (child)
+                  (org-gantt-will-render-anything-p child default-date children-level))
+                subelements)))
+
 (defun org-gantt-info-to-pgfgantt (gi default-date level &optional prefix ordered linked last)
   "Create a pgfgantt string from gantt-info GI.
 Prefix the created string with PREFIX.
@@ -1102,7 +1160,7 @@ LAST should be non-nil for the last gant-info in the Gant Chart."
            (show-progress (plist-get org-gantt-options :show-progress))
            (progress-source (plist-get org-gantt-options :progress-source))
            (inactive-style)
-           (ignore-this nil) ;ignore everything sub-this
+           (ignore-this nil)      ;ignore everything sub-this
            (ignore-only-this nil) ;ignore this, but maybe allow sub-this
            )
       (cond ((and (not up-start) (not down-end))
@@ -1131,7 +1189,7 @@ LAST should be non-nil for the last gant-info in the Gant Chart."
             prefix
             (cond (is-milestone
                    (if linked "\\ganttlinkedmilestone" "\\ganttmilestone"))
-                  (subelements
+                  ((org-gantt-has-visible-children-p subelements default-date (+ level 1))
                    (if linked "\\ganttlinkedgroup" "\\ganttgroup"))
                   (t
                    (if linked "\\ganttlinkedbar" "\\ganttbar")))
