@@ -1194,7 +1194,9 @@ LAST should be non-nil for the last gant-info in the Gant Chart."
                   (t
                    (if linked "\\ganttlinkedbar" "\\ganttbar")))
             "["
-            (org-gantt-get-shifts up-start down-end compress subelements)
+            (org-gantt-get-shifts up-start down-end compress
+                      (and subelements
+                           (org-gantt-has-visible-children-p subelements default-date (+ level 1))))
             (when id (concat ", name=" id))
             (cond
              ((equal show-progress 'always)
