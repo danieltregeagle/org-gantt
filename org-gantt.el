@@ -1415,7 +1415,7 @@ PARAMS determine several options of the gantt chart."
                                    (cdr element)
                                  element)
                              nil))  nil t))))
-             (org-gantt-info-list (org-gantt-crawl-headlines parsed-data))
+             (org-gantt-info-list nil)
              (org-gantt-check-info-list nil))
         (setq org-gantt-options
               (list :work-free-days
@@ -1450,6 +1450,7 @@ PARAMS determine several options of the gantt chart."
                     compress
                     :maxlevel
                     (or (plist-get params :maxlevel) org-gantt-default-maxlevel)))
+        (setq org-gantt-info-list (org-gantt-crawl-headlines parsed-data))
         (when (not parsed-data)
           (error "Could not find element with :ID: %s" id))
         (while *org-gantt-changed-in-propagation*
