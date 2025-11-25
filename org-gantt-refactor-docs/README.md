@@ -20,18 +20,18 @@ This collection contains step-by-step prompts to refactor the monolithic
 
 ## Phase Summary
 
-| Phase | File | Description | Risk | Sessions |
-|-------|------|-------------|------|----------|
-| 0 | 01-phase-setup.org | Test infrastructure | None | 1 |
-| 1 | 02-phase-config.org | Extract configuration | Low | 1 |
-| 2 | 03-phase-context.org | Create context struct | Low | 1 |
-| 3 | 04-phase-util.org | Extract utilities | Low | 1 |
-| 4 | 05-phase-time.org | Extract time module | Medium | 2 |
-| 5 | 06-phase-parse.org | Extract parse module | Medium | 2 |
-| 6 | 07-phase-propagate.org | Extract propagation | High | 3 |
-| 7 | 08-phase-render.org | Extract render module | Medium | 2 |
-| 8 | 09-phase-core.org | Refactor core | High | 2 |
-| 9 | 10-phase-integration.org | Final cleanup | Medium | 2 |
+| Phase | File                     | Description           | Risk   | Sessions |
+|-------|--------------------------|-----------------------|--------|----------|
+| 0     | 01-phase-setup.org       | Test infrastructure   | None   | 1        |
+| 1     | 02-phase-config.org      | Extract configuration | Low    | 1        |
+| 2     | 03-phase-context.org     | Create context struct | Low    | 1        |
+| 3     | 04-phase-util.org        | Extract utilities     | Low    | 1        |
+| 4     | 05-phase-time.org        | Extract time module   | Medium | 2        |
+| 5     | 06-phase-parse.org       | Extract parse module  | Medium | 2        |
+| 6     | 07-phase-propagate.org   | Extract propagation   | High   | 3        |
+| 7     | 08-phase-render.org      | Extract render module | Medium | 2        |
+| 8     | 09-phase-core.org        | Refactor core         | High   | 2        |
+| 9     | 10-phase-integration.org | Final cleanup         | Medium | 2        |
 
 **Total: ~17 Claude Code sessions over ~11 weeks**
 
