@@ -73,6 +73,103 @@ For each phase:
 6. *Commit if passing*: =git add -A && git commit -m "Complete phase N"=
 7. *If failing*: =git checkout .= and retry or debug
 
+
+* Debugging Test Failures
+
+When a phase's tests fail, follow this systematic approach:
+
+** Step 1: Identify the Failure Type
+
+Test failures can come from three sources:
+
+1. *Test Infrastructure Bugs* - The test harness itself has issues
+2. *Code Regressions* - Your changes broke existing functionality
+3. *Test Expectations* - Tests need updating for intentional changes
+
+** Step 2: Debug Test Infrastructure First
+
+Before assuming your code changes are wrong, verify the test infrastructure:
+
+#+begin_src bash
+# Check if test runner loads properly
+emacs -batch -L . -L test -l test/org-gantt-test-runner.el \
+      --eval "(message \"Test runner loaded\")"
+
+# Manually run the dynamic block update to see detailed output
+emacs -batch -L . --eval "(progn
+  (require 'org-gantt)
+  (find-file \"test/test-fixtures/sample-gantt.org\")
+  (org-mode)
+  (org-clock-sum)
+  (goto-char (point-min))
+  (search-forward \"#+BEGIN: org-gantt-chart\")
+  (beginning-of-line)
+  (org-update-dblock))"
+#+end_src
+
+Common test infrastructure issues:
+- Missing =org-clock-sum= call before dynamic block update
+- Cursor not positioned at line beginning for =org-update-dblock=
+- Incorrect content extraction (boundary off-by-one errors)
+
+** Step 3: Compare Outputs Character-by-Character
+
+If regression test fails, generate actual output and compare:
+
+#+begin_src bash
+# Generate current output
+emacs -batch -Q -L . --eval "..." > actual-output.tex
+
+# Compare with expected
+diff -u test/test-fixtures/expected-output.tex actual-output.tex
+#+end_src
+
+** Step 4: Workarounds for Tool Failures
+
+If the Edit tool reports "File has been unexpectedly modified":
+- *Option 1*: Re-read the file and try Edit again
+- *Option 2*: Use =sed= commands as a fallback:
+  #+begin_src bash
+  sed -i 'LINE_NUMBER a\NEW_LINE_CONTENT' file.el
+  sed -i 'START,ENDd' file.el  # Delete lines
+  #+end_src
+- *Option 3*: For complex edits, use Write tool to rewrite entire file
+
+** Step 5: Verify Fix Didn't Break Other Things
+
+After fixing test infrastructure:
+#+begin_src bash
+make regression  # Ensure regression test now passes
+make test        # Run all unit tests
+#+end_src
+
+** Step 6: Interpreting Byte-Compilation Warnings
+
+Not all byte-compilation warnings indicate problems with your changes:
+
+*Pre-existing warnings* (safe to ignore during refactoring):
+- Docstring wider than 80 characters
+- Wrong usage of unescaped single quotes in docstrings
+- Missing function definitions for org-mode functions (org-element-*, org-clock-sum, etc.)
+- Reference to free variables that will be defined later in require chain
+
+*New warnings* (require investigation):
+- Undefined functions with org-gantt- prefix
+- Wrong number of arguments to org-gantt- functions
+- Assignment to free variable (suggests missing parameter)
+- Calls to functions not yet defined in dependency order
+
+*Strategy*:
+#+begin_src bash
+# Capture warnings before your changes
+make clean && make compile 2>&1 | tee baseline-warnings.txt
+
+# After your changes, compare
+make clean && make compile 2>&1 | tee current-warnings.txt
+diff baseline-warnings.txt current-warnings.txt
+#+end_src
+
+Only warnings in the diff are your responsibility to fix.
 * Quick Reference: Running Tests
 
 #+begin_src bash

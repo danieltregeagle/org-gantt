@@ -136,7 +136,9 @@ org-gantt/
 - **Run regression test after each phase** - Catch breakage early
 - **Don't skip phases** - Later phases depend on earlier ones
 - **Review Claude Code output** - Verify logic is preserved
-- **Ask Claude Code to explain** - If something looks wrong
+- **Ask Claude Code to explai
+
+** - If something looks wrong
 
 ## Troubleshooting
 
@@ -150,10 +152,20 @@ org-gantt/
 - Check date calculations (timezone issues?)
 - Verify options are being read correctly
 
+
+**Test infrastructure issues:**
+- If tests fail immediately after Phase 0, check test runner implementation
+- Verify org-clock-sum is called before dynamic block updates
+- Ensure proper cursor positioning with beginning-of-line
+- See 00-MASTER-GUIDE.org "Debugging Test Failures" for details
+
+
 **Byte-compilation warnings:**
-- Add missing `require` statements
-- Check for undefined functions
-- Ensure lexical-binding is t
+- Capture baseline warnings before making changes
+- Compare new warnings against baseline to identify regressions
+- Pre-existing style warnings (docstring width, quotes) are safe to ignore
+- Focus on new function/variable reference warnings
+
 
 ## Timeline
 

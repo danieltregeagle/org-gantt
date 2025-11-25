@@ -165,6 +165,22 @@ WORK-FREE-DAYS is list of day numbers (0=Sun, 6=Sat)."
 - Add =(message "iteration %d" i)= for debugging
 - Verify max-iterations safeguard
 
+
+** "File has been unexpectedly modified" (Edit tool)
+- Re-read file with Read tool and retry Edit
+- Use =sed= for line insertions: =sed -i 'N a\TEXT' file.el=
+- Use =sed= for line deletions: =sed -i 'N,Md' file.el=
+- For complex changes, use Write tool to rewrite file
+
+** Test runner gives "Not at a dynamic block"
+- Ensure =(beginning-of-line)= before =org-update-dblock=
+- Check cursor is on =#+BEGIN:= line
+- Verify org-mode is active in buffer
+
+** Regression test output differs by whitespace/newlines
+- Check content extraction boundaries
+- Use =(beginning-of-line)= not =(forward-line -1)= for end position
+- Verify no trailing whitespace in expected-output.tex
 * Claude Code Prompt Template
 
 #+begin_example
