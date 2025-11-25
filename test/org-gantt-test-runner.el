@@ -48,13 +48,14 @@
                    (org-clock-sum) ;; Required for clocksum to work
                    (goto-char (point-min))
                    (search-forward "#+BEGIN: org-gantt-chart")
+                   (beginning-of-line)
                    (org-update-dblock)
                    (goto-char (point-min))
                    (search-forward "#+BEGIN: org-gantt-chart")
                    (forward-line 1)
                    (let ((start (point)))
                      (search-forward "#+END:")
-                     (forward-line -1)
+                     (beginning-of-line)
                      (buffer-substring-no-properties start (point))))))
     (if (string= (string-trim expected) (string-trim actual))
         (progn
