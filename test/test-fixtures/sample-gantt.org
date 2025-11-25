@@ -1,0 +1,70 @@
+#+TITLE: org-gantt Test Fixture
+#+STARTUP: logdone
+
+* Test Project :project:
+SCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-31 Fri>
+:PROPERTIES:
+:ORDERED: t
+:ID: test-project-root
+:END:
+
+** Phase 1: Setup
+SCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-10 Fri>
+:PROPERTIES:
+:EFFORT: 4d
+:END:
+
+*** Task 1.1: Requirements
+SCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-07 Tue>
+:PROPERTIES:
+:EFFORT: 1d
+:CLOCKSUM: 4:00
+:END:
+
+*** Task 1.2: Design
+SCHEDULED: <2025-01-08 Wed> DEADLINE: <2025-01-10 Fri>
+:PROPERTIES:
+:EFFORT: 2d
+:END:
+
+** Phase 2: Implementation [50%]
+:PROPERTIES:
+:EFFORT: 10d
+:ORDERED: t
+:END:
+
+*** Task 2.1: Core Module
+:PROPERTIES:
+:EFFORT: 3d
+:END:
+
+*** Task 2.2: Tests :testing:
+:PROPERTIES:
+:EFFORT: 2d
+:LINKED-TO: test-project-root
+:END:
+
+** Incomplete Start Only
+SCHEDULED: <2025-01-20 Mon>
+:PROPERTIES:
+:EFFORT: 1d
+:END:
+
+** Incomplete End Only
+DEADLINE: <2025-01-25 Sat>
+:PROPERTIES:
+:EFFORT: 1d
+:END:
+
+** No Dates Task
+:PROPERTIES:
+:EFFORT: 2d
+:END:
+
+** Release Milestone :milestone:
+DEADLINE: <2025-01-31 Fri>
+
+* Gantt Chart Output
+
+#+BEGIN: org-gantt-chart :id "test-project-root" :file nil
+#+END:

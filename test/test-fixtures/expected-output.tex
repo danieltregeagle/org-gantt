@@ -1,0 +1,14 @@
+\begin{ganttchart}[time slot format=isodate, vgrid={*4{dashed},*3{black}}]{2025-01-06}{2025-01-31}
+\gantttitlecalendar{year, month=name, day}\\
+\ganttgroup[group left shift=0.0, group right shift=-0.0, name=test-project-root]{Test Project}{2025-01-06}{2025-01-31}\\
+  \ganttgroup[group left shift=0.0, group right shift=-0.0, name=uniqueid1]{Phase 1: Setup}{2025-01-06}{2025-01-10}\\
+    \ganttbar[bar left shift=0.0, bar right shift=-0.0, name=uniqueid2]{Task 1.1: Requirements}{2025-01-06}{2025-01-07}\\
+    \ganttlinkedbar[bar left shift=0.0, bar right shift=-0.0, name=uniqueid3]{Task 1.2: Design}{2025-01-08}{2025-01-10}\\
+  \ganttlinkedgroup[group left shift=0.0, group right shift=-0.0, name=uniqueid4]{Phase 2: Implementation [50]}{2025-01-13}{2025-01-17}\\
+    \ganttbar[bar left shift=0.0, bar right shift=-0.0, name=uniqueid5]{Task 2.1: Core Module}{2025-01-13}{2025-01-22}\\
+    \ganttlinkedbar[bar left shift=0.0, bar right shift=-0.0, name=uniqueid6]{Task 2.2: Tests}{2025-01-09}{2025-01-17}\\
+  \ganttlinkedbar[bar left shift=0.0, bar right shift=-0.0, name=uniqueid7]{Incomplete Start Only}{2025-01-20}{2025-01-27}\\
+  \ganttlinkedbar[bar left shift=0.0, bar right shift=-0.0, name=uniqueid8]{Incomplete End Only}{2025-01-20}{2025-01-25}\\
+  \ganttlinkedbar[bar left shift=0.0, bar right shift=-0.0, name=uniqueid9]{No Dates Task}{2025-01-27}{2025-01-31}\\
+  \ganttlinkedmilestone[bar left shift=0.0, bar right shift=-0.0, name=uniqueid10]{Release Milestone}{2025-01-31}
+\end{ganttchart}

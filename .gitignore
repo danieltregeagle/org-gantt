@@ -1,0 +1,10 @@
+# Compiled files
+*.elc
+
+# Claude Code settings
+.claude/
+
+# Editor backups
+*~
+\#*\#
+.\#*
