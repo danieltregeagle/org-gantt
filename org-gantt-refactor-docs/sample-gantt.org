@@ -1,0 +1,143 @@
+#+TITLE: org-gantt Test Fixture
+#+AUTHOR: Test Suite
+#+STARTUP: logdone
+
+* Instructions
+
+This file serves as the regression test fixture for org-gantt refactoring.
+
+Before starting refactoring:
+1. Generate the baseline output by running org-update-dblock on the chart below
+2. Save the output to expected-output.tex
+3. After each phase, regenerate and compare to verify no regressions
+
+* Test Project :project:
+SCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-31 Fri>
+:PROPERTIES:
+:ORDERED: t
+:ID: test-project-root
+:END:
+
+This project exercises all major org-gantt features.
+
+** Phase 1: Setup
+SCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-10 Fri>
+:PROPERTIES:
+:EFFORT: 4d
+:END:
+
+*** Task 1.1: Requirements
+SCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-07 Tue>
+:PROPERTIES:
+:EFFORT: 1d
+:CLOCKSUM: 4:00
+:END:
+
+*** Task 1.2: Design
+SCHEDULED: <2025-01-08 Wed> DEADLINE: <2025-01-10 Fri>
+:PROPERTIES:
+:EFFORT: 2d
+:END:
+
+** Phase 2: Implementation [50%]
+:PROPERTIES:
+:EFFORT: 10d
+:ORDERED: t
+:END:
+
+Testing progress display from statistics cookie.
+
+*** Task 2.1: Core Module
+:PROPERTIES:
+:EFFORT: 3d
+:END:
+
+Task without explicit dates - should inherit from ordered parent.
+
+*** Task 2.2: Tests :testing:
+:PROPERTIES:
+:EFFORT: 2d
+:LINKED-TO: test-project-root
+:END:
+
+Tests linked-to functionality.
+
+*** Task 2.3: Documentation
+:PROPERTIES:
+:EFFORT: 2d
+:CLOCKSUM: 8:00
+:END:
+
+Has clocksum for progress calculation.
+
+** Phase 3: Styling Tests :styling:
+SCHEDULED: <2025-01-20 Mon> DEADLINE: <2025-01-24 Fri>
+:PROPERTIES:
+:EFFORT: 4d
+:END:
+
+Tests tag-based styling.
+
+*** Styled Task :urgent:
+SCHEDULED: <2025-01-20 Mon> DEADLINE: <2025-01-21 Tue>
+:PROPERTIES:
+:EFFORT: 1d
+:END:
+
+** Incomplete Start Only
+SCHEDULED: <2025-01-25 Sat>
+:PROPERTIES:
+:EFFORT: 1d
+:END:
+
+Tests incomplete-date-headlines handling (start only).
+
+** Incomplete End Only
+DEADLINE: <2025-01-27 Mon>
+:PROPERTIES:
+:EFFORT: 1d
+:END:
+
+Tests incomplete-date-headlines handling (end only).
+
+** No Dates Task
+:PROPERTIES:
+:EFFORT: 2d
+:END:
+
+Tests no-date-headlines handling.
+
+** Ignored Task :ignore_me:
+SCHEDULED: <2025-01-15 Wed>
+:PROPERTIES:
+:EFFORT: 1d
+:END:
+
+Should be excluded when ignore-tags includes "ignore_me".
+
+** Release Milestone :milestone:
+DEADLINE: <2025-01-31 Fri>
+
+Tests milestone rendering.
+
+* Secondary Project
+
+A second top-level project to test multiple roots.
+
+** Independent Task
+SCHEDULED: <2025-02-01 Sat> DEADLINE: <2025-02-03 Mon>
+:PROPERTIES:
+:EFFORT: 2d
+:END:
+
+* Gantt Chart
+
+#+BEGIN: org-gantt-chart :id "test-project-root" :file nil :no-date-headlines inactive :incomplete-date-headlines inactive :show-progress if-exists :progress-source cookie-clocksum
+#+END:
+
+* Chart with Options
+
+This chart uses more options for comprehensive testing.
+
+#+BEGIN: org-gantt-chart :id "test-project-root" :file nil :compress t :hgrid t :maxlevel 2 :show-progress always :ignore-tags ("ignore_me") :tags-bar-style (("urgent" . "bar label font=\\color{red}")) :tags-group-style (("styling" . "group label font=\\color{blue}"))
+#+END:

@@ -1,0 +1,611 @@
+#+TITLE: Phase 6: Extract Propagation Module
+#+PROPERTY: PHASE 6
+#+PROPERTY: RISK High
+#+PROPERTY: SESSIONS 3
+
+* Objective
+
+Extract all propagation functions to =org-gantt-propagate.el=. This is the
+highest-risk phase because:
+
+1. Functions heavily mutate global state
+2. The propagation loop depends on =*org-gantt-changed-in-propagation*=
+3. Link hash is built during propagation and consumed during rendering
+
+* Key Challenge
+
+The propagation loop in the original code:
+
+#+begin_src emacs-lisp
+(while *org-gantt-changed-in-propagation*
+  (setq *org-gantt-changed-in-propagation* nil)
+  (setq *org-gantt-changed-in-propagation*
+        (org-gantt-calculate-ds-from-effort org-gantt-info-list))
+  (setq *org-gantt-changed-in-propagation*
+        (or (org-gantt-propagate-order-timestamps org-gantt-info-list)
+            *org-gantt-changed-in-propagation*))
+  (org-gantt-propagate-ds-up org-gantt-info-list)
+  (org-gantt-propagate-linked-to-timestamps
+   org-gantt-info-list org-gantt-info-list))
+#+end_src
+
+Must be refactored to use context:
+
+#+begin_src emacs-lisp
+(while (org-gantt-context-changed ctx)
+  (org-gantt-context-reset-for-propagation ctx)
+  (org-gantt-propagate-calculate-ds-from-effort ctx)
+  (org-gantt-propagate-order-timestamps ctx)
+  (org-gantt-propagate-ds-up ctx)
+  (org-gantt-propagate-linked-to-timestamps ctx))
+#+end_src
+
+* Prompt for Claude Code (Session 1 of 3)
+
+#+begin_src markdown
+## Task: Extract Propagation Functions (Part 1 - Date Propagation)
+
+Create `org-gantt-propagate.el` with date propagation functions.
+
+### Functions to Extract in This Session:
+
+**Group 1: Effort-based date calculation**
+
+1. `org-gantt-calculate-ds-from-effort` (line ~790) → `org-gantt-propagate-ds-from-effort`
+   - Calculates deadline/schedule from effort when one is missing
+   - CHANGE: Accept context, return changed status, mark ctx changed
+
+**Group 2: Ordered dependency propagation**
+
+2. `org-gantt-propagate-order-timestamps` (line ~686) → `org-gantt-propagate-order-timestamps`
+   - Propagates times for ORDERED headlines
+   - CHANGE: Accept context
+
+**Group 3: Linked-to propagation**
+
+3. `org-gantt-find-headline-with-id` (line ~733) → `org-gantt-propagate--find-by-id`
+   - Finds headline by ID in list
+   - No change needed (pure function)
+
+4. `org-gantt-propagate-linked-to-timestamps` (line ~746) → `org-gantt-propagate-linked-to`
+   - Propagates times based on LINKED-TO property
+   - CHANGE: Accept context, use ctx link-hash
+   - This is where links are added to ctx link-hash
+
+**Group 4: Upward propagation**
+
+5. `org-gantt-first-subheadline-start` (line ~818) → `org-gantt-propagate--first-child-start`
+   - Gets start of first child
+   - No change needed
+
+6. `org-gantt-last-subheadline-end` (line ~829) → `org-gantt-propagate--last-child-end`
+   - Gets end of last child
+   - No change needed
+
+7. `org-gantt-get-subheadline-start` (line ~825) → `org-gantt-propagate--aggregate-start`
+   - Gets aggregated start from children
+   - No change needed
+
+8. `org-gantt-get-subheadline-end` (line ~839) → `org-gantt-propagate--aggregate-end`
+   - Gets aggregated end from children
+   - No change needed
+
+9. `org-gantt-propagate-ds-up` (line ~901) → `org-gantt-propagate-dates-up`
+   - Propagates dates upward from children to parents
+   - CHANGE: Accept context
+
+### Critical Refactoring Pattern:
+
+**Before (mutates global):**
+```elisp
+(defun org-gantt-propagate-linked-to-timestamps (headline-list complete-list)
+  ;; ...
+  (when (and found-headline ...)
+    (setq *org-gantt-changed-in-propagation* t)
+    (puthash orig-id 
+             (append (gethash orig-id *org-gantt-link-hash*) 
+                     (list linked-id))
+             *org-gantt-link-hash*)
+    ;; ...
+    ))
+```
+
+**After (uses context):**
+```elisp
+(defun org-gantt-propagate-linked-to (ctx)
+  "Propagate linked-to timestamps using context CTX."
+  (let ((info-list (org-gantt-context-info-list ctx)))
+    (org-gantt-propagate--linked-to-recurse info-list info-list ctx)))
+
+(defun org-gantt-propagate--linked-to-recurse (headline-list complete-list ctx)
+  ;; ...
+  (when (and found-headline ...)
+    (org-gantt-context-mark-changed ctx)
+    (org-gantt-context-add-link ctx orig-id linked-id)
+    ;; ...
+    ))
+```
+
+### File Structure:
+
+```elisp
+;;; org-gantt-propagate.el --- Property propagation for org-gantt -*- lexical-binding: t -*-
+
+;; Copyright (C) 2025 [Author]
+
+;;; Commentary:
+;;
+;; Functions for propagating properties through the gantt-info tree.
+;; 
+;; Propagation runs in a fixed-point loop until no changes occur:
+;; 1. Calculate dates from effort (if effort + one date exists)
+;; 2. Propagate ordered dependencies (next task starts when previous ends)
+;; 3. Propagate dates upward (parent spans children)
+;; 4. Propagate linked-to dependencies (manual links)
+;;
+;; All functions accept the context as their first parameter and
+;; use context accessors instead of global variables.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'org-gantt-config)
+(require 'org-gantt-context)
+(require 'org-gantt-util)
+(require 'org-gantt-time)
+
+;;; Main Propagation Entry Point
+
+(defun org-gantt-propagate-all-dates (ctx &optional max-iterations)
+  "Run all date propagation phases on CTX until stable.
+MAX-ITERATIONS limits the loop (default 100).
+Returns the number of iterations performed."
+  (let ((iterations 0)
+        (max-iter (or max-iterations 100)))
+    (while (and (< iterations max-iter)
+                (org-gantt-context-changed ctx))
+      (org-gantt-context-reset-for-propagation ctx)
+      (org-gantt-propagate-ds-from-effort ctx)
+      (org-gantt-propagate-order-timestamps ctx)
+      (org-gantt-propagate-dates-up ctx)
+      (org-gantt-propagate-linked-to ctx)
+      (cl-incf iterations))
+    (when (>= iterations max-iter)
+      (warn "org-gantt: propagation did not converge after %d iterations" max-iter))
+    iterations))
+
+;;; Date from Effort Propagation
+
+(defun org-gantt-propagate-ds-from-effort (ctx)
+  "Calculate dates from effort for all headlines in CTX.
+If a headline has effort and either start or end, calculate the missing one."
+  (org-gantt-propagate--ds-from-effort-list 
+   (org-gantt-context-info-list ctx)
+   ctx))
+
+(defun org-gantt-propagate--ds-from-effort-list (headline-list ctx)
+  "Propagate dates from effort for HEADLINE-LIST using CTX."
+  (let ((hours-per-day (org-gantt-context-hours-per-day ctx))
+        (work-free-days (org-gantt-context-work-free-days ctx)))
+    (dolist (headline headline-list)
+      (let ((start (gethash org-gantt-start-prop headline))
+            (end (gethash org-gantt-end-prop headline))
+            (effort (gethash org-gantt-effort-prop headline)))
+        (cond 
+         ;; Have start and effort, calculate end
+         ((and start effort (not end))
+          (puthash org-gantt-end-prop
+                   (org-gantt-time-add-worktime start effort 
+                                               hours-per-day work-free-days)
+                   headline)
+          (org-gantt-context-mark-changed ctx))
+         ;; Have end and effort, calculate start
+         ((and effort end (not start))
+          (puthash org-gantt-start-prop
+                   (org-gantt-time-subtract-worktime end effort
+                                                    hours-per-day work-free-days)
+                   headline)
+          (org-gantt-context-mark-changed ctx)))
+        ;; Recurse to children
+        (org-gantt-propagate--ds-from-effort-list 
+         (gethash :subelements headline) ctx)))))
+
+;;; Ordered Dependencies
+
+(defun org-gantt-propagate-order-timestamps (ctx)
+  "Propagate timestamps for ordered headlines in CTX."
+  (org-gantt-propagate--order-timestamps-list
+   (org-gantt-context-info-list ctx)
+   nil nil nil ctx))
+
+(defun org-gantt-propagate--order-timestamps-list 
+    (headline-list is-ordered parent-start parent-end ctx)
+  "Process HEADLINE-LIST for ordered propagation."
+  ;; [Implementation preserving original logic but using ctx]
+  ...)
+
+;;; [Additional functions...]
+
+(provide 'org-gantt-propagate)
+;;; org-gantt-propagate.el ends here
+```
+#+end_src
+
+* Prompt for Claude Code (Session 2 of 3)
+
+#+begin_src markdown
+## Task: Extract Propagation Functions (Part 2 - Effort and Progress)
+
+Continue adding to `org-gantt-propagate.el` with effort and progress propagation.
+
+### Functions to Add:
+
+**Group 5: Effort summation**
+
+10. `org-gantt-get-subheadline-effort-sum` (line ~854) → `org-gantt-propagate--effort-sum`
+    - Sums effort of all subheadlines
+    - No change needed (pure calculation)
+
+11. `org-gantt-propagate-summation-up` (line ~922) → `org-gantt-propagate-summation-up`
+    - Generic upward summation function
+    - Change: Accept context
+
+**Group 6: Progress calculation**
+
+12. `org-gantt-get-completion-percent` (line ~1006) → `org-gantt-propagate--completion-percent`
+    - Calculates % complete from effort and clocksum
+    - No change needed
+
+13. `org-gantt-compute-progress` (line ~944) → `org-gantt-propagate-compute-progress`
+    - Computes progress for all headlines
+    - Change: Accept context
+
+14. `org-gantt-get-subheadline-progress-summation` (line ~865) → `org-gantt-propagate--progress-sum`
+    - Weighted progress sum from children
+    - No change needed
+
+### Implementation for Progress:
+
+```elisp
+(defun org-gantt-propagate-compute-progress (ctx)
+  "Compute progress for all headlines in CTX.
+Progress is calculated from clocksum/effort ratio."
+  (org-gantt-propagate--compute-progress-list
+   (org-gantt-context-info-list ctx)))
+
+(defun org-gantt-propagate--compute-progress-list (headline-list)
+  "Compute progress for HEADLINE-LIST recursively."
+  (dolist (headline headline-list)
+    (let ((effort (gethash org-gantt-effort-prop headline))
+          (clocksum (gethash org-gantt-clocksum-prop headline)))
+      (when (and effort clocksum)
+        (puthash org-gantt-progress-prop
+                 (org-gantt-propagate--completion-percent effort clocksum)
+                 headline))
+      (org-gantt-propagate--compute-progress-list
+       (gethash :subelements headline)))))
+
+(defun org-gantt-propagate--completion-percent (effort clocksum)
+  "Calculate completion percentage from EFFORT and CLOCKSUM."
+  (if (and clocksum effort)
+      (let ((clocksum-secs (time-to-seconds clocksum))
+            (effort-secs (time-to-seconds effort)))
+        (if (> effort-secs 0)
+            (round (* 100 (/ clocksum-secs effort-secs)))
+          0))
+    0))
+```
+#+end_src
+
+* Prompt for Claude Code (Session 3 of 3)
+
+#+begin_src markdown
+## Task: Extract Propagation Functions (Part 3 - Tags and Final Assembly)
+
+Complete `org-gantt-propagate.el` with tag propagation and final wiring.
+
+### Functions to Add:
+
+**Group 7: Tag propagation**
+
+15. `org-gantt-propagate-tags-down` (line ~935) → `org-gantt-propagate-tags-down`
+    - Propagates parent tags to children
+    - Change: Accept context
+
+### Implementation:
+
+```elisp
+(defun org-gantt-propagate-tags-down (ctx)
+  "Propagate tags downward through the hierarchy in CTX.
+Each headline gets :parent-tags set to the combined tags of ancestors."
+  (org-gantt-propagate--tags-down-list
+   (org-gantt-context-info-list ctx)
+   nil))
+
+(defun org-gantt-propagate--tags-down-list (headline-list parent-tags)
+  "Propagate PARENT-TAGS to HEADLINE-LIST and recurse."
+  (dolist (headline headline-list)
+    (puthash org-gantt-parent-tags-prop parent-tags headline)
+    (org-gantt-propagate--tags-down-list
+     (gethash :subelements headline)
+     (append parent-tags (gethash org-gantt-tags-prop headline)))))
+```
+
+### Final Assembly - Complete Propagation Function:
+
+Add this comprehensive function that runs all propagation phases:
+
+```elisp
+(defun org-gantt-propagate-all (ctx)
+  "Run all propagation phases on CTX.
+This is the main entry point for propagation.
+  
+Phase 1: Fixed-point iteration for date propagation
+Phase 2: Effort summation (single pass)
+Phase 3: Progress computation (single pass)  
+Phase 4: Progress summation (single pass)
+Phase 5: Tag propagation (single pass)"
+  
+  ;; Phase 1: Date propagation (iterates until stable)
+  (org-gantt-propagate-all-dates ctx)
+  
+  ;; Phase 2: Sum efforts upward
+  (org-gantt-propagate-summation-up 
+   ctx
+   org-gantt-effort-prop
+   #'org-gantt-propagate--effort-sum
+   nil)  ; don't prioritize sub-sums
+  
+  ;; Phase 3: Compute progress from clocksum/effort
+  (org-gantt-propagate-compute-progress ctx)
+  
+  ;; Phase 4: Sum progress upward (weighted by effort)
+  (let ((calc-progress (org-gantt-context-get-option ctx :calc-progress)))
+    (org-gantt-propagate-summation-up
+     ctx
+     org-gantt-progress-prop
+     (lambda (hl) (org-gantt-propagate--progress-sum hl calc-progress t))
+     t))  ; prioritize sub-sums
+  
+  ;; Phase 5: Propagate tags downward
+  (org-gantt-propagate-tags-down ctx))
+```
+
+### After This Session:
+
+Update org-gantt.el to use the new module:
+1. Add `(require 'org-gantt-propagate)`
+2. Replace the propagation loop with `(org-gantt-propagate-all ctx)`
+#+end_src
+
+* Verification Steps
+
+** Step 1: Function count
+
+#+begin_src bash
+grep -c "^(defun org-gantt-propagate" org-gantt-propagate.el
+#+end_src
+
+Expected: 10+ public functions
+
+** Step 2: No global state
+
+#+begin_src bash
+grep -E "\*org-gantt-|org-gantt-options|org-gant-hours" org-gantt-propagate.el
+#+end_src
+
+Expected: No matches
+
+** Step 3: Context usage
+
+#+begin_src bash
+grep -c "org-gantt-context-" org-gantt-propagate.el
+#+end_src
+
+Expected: 15+ usages
+
+** Step 4: Byte-compile
+
+#+begin_src bash
+emacs -batch -L . -f batch-byte-compile org-gantt-propagate.el
+#+end_src
+
+** Step 5: Unit tests
+
+#+begin_src bash
+emacs -batch -L . -L test -l ert \
+      -l test/org-gantt-propagate-test.el \
+      -f ert-run-tests-batch-and-exit
+#+end_src
+
+** Step 6: Regression
+
+#+begin_src bash
+make regression
+#+end_src
+
+* Test File: test/org-gantt-propagate-test.el
+
+#+begin_src emacs-lisp
+;;; org-gantt-propagate-test.el --- Tests for org-gantt-propagate -*- lexical-binding: t -*-
+
+;;; Code:
+
+(require 'ert)
+(require 'org-gantt-propagate)
+(require 'org-gantt-parse)
+(require 'org-gantt-context)
+
+(defun org-gantt-test-make-propagate-context ()
+  "Create context for propagation tests."
+  (let ((ctx (org-gantt-context-init 8 '(0 6))))
+    (setf (org-gantt-context-options ctx)
+          '(:milestone-tags ("milestone")
+            :linked-to-property-keys (:LINKED-TO)
+            :calc-progress nil))
+    ctx))
+
+(defun org-gantt-test-parse-and-propagate (org-string)
+  "Parse ORG-STRING and run propagation, return context."
+  (let ((ctx (org-gantt-test-make-propagate-context)))
+    (with-temp-buffer
+      (insert org-string)
+      (org-mode)
+      (let ((parsed (org-element-parse-buffer)))
+        (setf (org-gantt-context-info-list ctx)
+              (org-gantt-parse-crawl-headlines parsed ctx))))
+    (org-gantt-propagate-all ctx)
+    ctx))
+
+;;; Date from Effort Tests
+
+(ert-deftest org-gantt-propagate-test-ds-from-effort-forward ()
+  "Test calculating end date from start + effort."
+  (let* ((ctx (org-gantt-test-parse-and-propagate
+               "* Task\nSCHEDULED: <2025-01-06 Mon>\n:PROPERTIES:\n:EFFORT: 2d\n:END:\n"))
+         (info (car (org-gantt-context-info-list ctx)))
+         (end-date (gethash org-gantt-end-prop info)))
+    (should end-date)
+    ;; Monday + 2 days = Wednesday
+    (let ((decoded (decode-time end-date)))
+      (should (= 8 (nth 3 decoded))))))  ; Jan 8
+
+(ert-deftest org-gantt-propagate-test-ds-from-effort-backward ()
+  "Test calculating start date from end + effort."
+  (let* ((ctx (org-gantt-test-parse-and-propagate
+               "* Task\nDEADLINE: <2025-01-10 Fri>\n:PROPERTIES:\n:EFFORT: 2d\n:END:\n"))
+         (info (car (org-gantt-context-info-list ctx)))
+         (start-date (gethash org-gantt-start-prop info)))
+    (should start-date)
+    ;; Friday - 2 days = Wednesday
+    (let ((decoded (decode-time start-date)))
+      (should (= 8 (nth 3 decoded))))))  ; Jan 8
+
+;;; Ordered Propagation Tests
+
+(ert-deftest org-gantt-propagate-test-ordered-sequential ()
+  "Test that ordered tasks get sequential dates."
+  (let* ((ctx (org-gantt-test-parse-and-propagate
+               (concat "* Project\n"
+                       ":PROPERTIES:\n:ORDERED: t\n:END:\n"
+                       "** Task 1\nSCHEDULED: <2025-01-06 Mon>\n"
+                       ":PROPERTIES:\n:EFFORT: 2d\n:END:\n"
+                       "** Task 2\n:PROPERTIES:\n:EFFORT: 2d\n:END:\n"
+                       "** Task 3\n:PROPERTIES:\n:EFFORT: 1d\n:END:\n")))
+         (project (car (org-gantt-context-info-list ctx)))
+         (tasks (gethash :subelements project))
+         (task1 (nth 0 tasks))
+         (task2 (nth 1 tasks))
+         (task3 (nth 2 tasks)))
+    ;; Task 2 should start when Task 1 ends
+    (should (gethash org-gantt-start-prop task2))
+    ;; Task 3 should start when Task 2 ends
+    (should (gethash org-gantt-start-prop task3))))
+
+;;; Upward Propagation Tests
+
+(ert-deftest org-gantt-propagate-test-dates-up ()
+  "Test that parent dates come from children."
+  (let* ((ctx (org-gantt-test-parse-and-propagate
+               (concat "* Parent\n"
+                       "** Child 1\nSCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-08 Wed>\n"
+                       "** Child 2\nSCHEDULED: <2025-01-10 Fri> DEADLINE: <2025-01-15 Wed>\n")))
+         (parent (car (org-gantt-context-info-list ctx)))
+         (start (gethash org-gantt-start-prop parent))
+         (end (gethash org-gantt-end-prop parent)))
+    ;; Parent start should be earliest child start (Jan 6)
+    (should (= 6 (nth 3 (decode-time start))))
+    ;; Parent end should be latest child end (Jan 15)
+    (should (= 15 (nth 3 (decode-time end))))))
+
+;;; Effort Summation Tests
+
+(ert-deftest org-gantt-propagate-test-effort-sum ()
+  "Test that parent effort is sum of children."
+  (let* ((ctx (org-gantt-test-parse-and-propagate
+               (concat "* Parent\n"
+                       "** Child 1\n:PROPERTIES:\n:EFFORT: 2d\n:END:\n"
+                       "** Child 2\n:PROPERTIES:\n:EFFORT: 3d\n:END:\n")))
+         (parent (car (org-gantt-context-info-list ctx)))
+         (effort (gethash org-gantt-effort-prop parent)))
+    ;; Parent effort should be 5 days = 40 hours = 144000 seconds
+    (should effort)
+    (should (= (* 5 8 3600) (time-to-seconds effort)))))
+
+;;; Progress Tests
+
+(ert-deftest org-gantt-propagate-test-progress-from-clocksum ()
+  "Test progress calculation from clocksum/effort."
+  (let* ((ctx (org-gantt-test-parse-and-propagate
+               "* Task\n:PROPERTIES:\n:EFFORT: 2d\n:CLOCKSUM: 8:00\n:END:\n"))
+         (info (car (org-gantt-context-info-list ctx)))
+         (progress (gethash org-gantt-progress-prop info)))
+    ;; 8 hours of 16 hours (2 days) = 50%
+    (should (= 50 progress))))
+
+;;; Tag Propagation Tests
+
+(ert-deftest org-gantt-propagate-test-tags-down ()
+  "Test that parent tags propagate to children."
+  (let* ((ctx (org-gantt-test-parse-and-propagate
+               (concat "* Parent :important:\n"
+                       "** Child 1 :urgent:\n"
+                       "*** Grandchild\n")))
+         (parent (car (org-gantt-context-info-list ctx)))
+         (child (car (gethash :subelements parent)))
+         (grandchild (car (gethash :subelements child))))
+    ;; Child should have parent's tags in :parent-tags
+    (should (member "important" (gethash org-gantt-parent-tags-prop child)))
+    ;; Grandchild should have both parent and grandparent tags
+    (should (member "important" (gethash org-gantt-parent-tags-prop grandchild)))
+    (should (member "urgent" (gethash org-gantt-parent-tags-prop grandchild)))))
+
+;;; Link Hash Tests
+
+(ert-deftest org-gantt-propagate-test-linked-to ()
+  "Test that LINKED-TO creates entries in link hash."
+  (let* ((ctx (org-gantt-test-parse-and-propagate
+               (concat "* Task A\n:PROPERTIES:\n:ID: task-a\n:END:\n"
+                       "SCHEDULED: <2025-01-06 Mon>\n"
+                       ":PROPERTIES:\n:EFFORT: 2d\n:END:\n"
+                       "* Task B\n:PROPERTIES:\n:LINKED-TO: task-a\n:END:\n")))
+         (link-hash (org-gantt-context-link-hash ctx)))
+    ;; There should be a link from task-a to task-b
+    (should (gethash "task-a" link-hash))))
+
+;;; Convergence Tests
+
+(ert-deftest org-gantt-propagate-test-convergence ()
+  "Test that propagation converges."
+  (let ((ctx (org-gantt-test-make-propagate-context)))
+    (with-temp-buffer
+      (insert (concat "* Complex\n"
+                     ":PROPERTIES:\n:ORDERED: t\n:END:\n"
+                     "** A\nSCHEDULED: <2025-01-06 Mon>\n"
+                     ":PROPERTIES:\n:EFFORT: 2d\n:END:\n"
+                     "** B\n:PROPERTIES:\n:EFFORT: 3d\n:END:\n"
+                     "** C\n:PROPERTIES:\n:EFFORT: 1d\n:END:\n"))
+      (org-mode)
+      (setf (org-gantt-context-info-list ctx)
+            (org-gantt-parse-crawl-headlines (org-element-parse-buffer) ctx)))
+    ;; Should converge in reasonable iterations
+    (let ((iterations (org-gantt-propagate-all-dates ctx)))
+      (should (< iterations 10)))))
+
+;;; org-gantt-propagate-test.el ends here
+#+end_src
+
+* Success Criteria
+
+- [ ] =org-gantt-propagate.el= exists with 15+ functions
+- [ ] =org-gantt-propagate-all= orchestrates all phases
+- [ ] All functions use context instead of globals
+- [ ] Link hash populated via =org-gantt-context-add-link=
+- [ ] Changed flag managed via context accessors
+- [ ] File byte-compiles without warnings
+- [ ] All propagation tests pass
+- [ ] Regression test passes
+
+* Next Phase
+
+Once all criteria pass, proceed to [[file:08-phase-render.org][Phase 7: Extract Render Module]].

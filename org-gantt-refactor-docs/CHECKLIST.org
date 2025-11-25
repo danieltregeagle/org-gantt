@@ -1,0 +1,186 @@
+#+TITLE: org-gantt Refactoring Progress Checklist
+#+OPTIONS: toc:nil num:nil
+
+* Phase 0: Test Infrastructure
+Date started: _______ Date completed: _______
+
+- [ ] test/org-gantt-test-runner.el created
+- [ ] test/test-fixtures/sample-gantt.org created
+- [ ] test/test-fixtures/expected-output.tex generated
+- [ ] Makefile created
+- [ ] =make compile= works on original org-gantt.el
+- [ ] Committed: =git commit -m "Phase 0 complete"=
+
+* Phase 1: Extract Configuration  
+Date started: _______ Date completed: _______
+
+- [ ] org-gantt-config.el created
+- [ ] 22 defcustom declarations moved
+- [ ] 12 defconst declarations moved
+- [ ] org-gantt.el requires org-gantt-config
+- [ ] Both files byte-compile clean
+- [ ] Config tests pass
+- [ ] Regression test passes
+- [ ] Committed: =git commit -m "Phase 1 complete"=
+
+* Phase 2: Create Context Struct
+Date started: _______ Date completed: _______
+
+- [ ] org-gantt-context.el created
+- [ ] cl-defstruct defined
+- [ ] org-gantt-context-init function
+- [ ] org-gantt-context-next-id function
+- [ ] org-gantt-context-add-link function
+- [ ] org-gantt-context-mark-changed function
+- [ ] Context tests pass
+- [ ] Byte-compiles clean
+- [ ] Committed: =git commit -m "Phase 2 complete"=
+
+* Phase 3: Extract Utilities
+Date started: _______ Date completed: _______
+
+- [ ] org-gantt-util.el created
+- [ ] 14+ utility functions extracted
+- [ ] No global state access
+- [ ] dbgmessage replaced with debug-message
+- [ ] Utility tests pass (15+ tests)
+- [ ] Byte-compiles clean
+- [ ] Regression test passes
+- [ ] Committed: =git commit -m "Phase 3 complete"=
+
+* Phase 4: Extract Time Module
+Date started: _______ Date completed: _______
+
+- [ ] org-gantt-time.el created
+- [ ] 17+ time functions extracted
+- [ ] All functions accept config as parameters
+- [ ] No global state access
+- [ ] Time tests pass (20+ tests)
+- [ ] Compatibility wrappers in org-gantt.el
+- [ ] Byte-compiles clean
+- [ ] Regression test passes
+- [ ] Committed: =git commit -m "Phase 4 complete"=
+
+* Phase 5: Extract Parse Module
+Date started: _______ Date completed: _______
+
+- [ ] org-gantt-parse.el created
+- [ ] 13+ parse functions extracted
+- [ ] Functions use context parameter
+- [ ] ID generation uses context
+- [ ] Parse tests pass
+- [ ] Byte-compiles clean
+- [ ] Regression test passes
+- [ ] Committed: =git commit -m "Phase 5 complete"=
+
+* Phase 6: Extract Propagation Module
+Date started: _______ Date completed: _______
+
+Session 1:
+- [ ] Date propagation functions extracted
+- [ ] org-gantt-propagate-ds-from-effort
+- [ ] org-gantt-propagate-order-timestamps
+- [ ] org-gantt-propagate-dates-up
+- [ ] org-gantt-propagate-linked-to
+
+Session 2:
+- [ ] Effort summation functions
+- [ ] Progress calculation functions
+- [ ] org-gantt-propagate-compute-progress
+
+Session 3:
+- [ ] Tag propagation
+- [ ] org-gantt-propagate-all orchestrator
+- [ ] All propagation tests pass
+- [ ] Byte-compiles clean
+- [ ] Regression test passes
+- [ ] Committed: =git commit -m "Phase 6 complete"=
+
+* Phase 7: Extract Render Module
+Date started: _______ Date completed: _______
+
+- [ ] org-gantt-render.el created
+- [ ] org-gantt-info-to-pgfgantt decomposed
+- [ ] org-gantt-render--compute-dates
+- [ ] org-gantt-render--element-type
+- [ ] org-gantt-render--progress-string
+- [ ] org-gantt-render--style-string
+- [ ] org-gantt-render-chart (assembly)
+- [ ] org-gantt-render-links
+- [ ] org-gantt-render-vgrid-style
+- [ ] No function > 60 lines
+- [ ] Render tests pass
+- [ ] Byte-compiles clean
+- [ ] Regression test passes
+- [ ] Committed: =git commit -m "Phase 7 complete"=
+
+* Phase 8: Refactor Core
+Date started: _______ Date completed: _______
+
+- [ ] org-gantt-core.el created
+- [ ] org-gantt-core--parse-parameters
+- [ ] org-gantt-core--find-target
+- [ ] org-gantt-core--build-context
+- [ ] org-gantt-core--determine-date-range
+- [ ] org-dblock-write:org-gantt-chart refactored
+- [ ] org-insert-dblock:org-gantt-chart preserved
+- [ ] org-gantt.el is thin wrapper
+- [ ] No global state mutations
+- [ ] Core tests pass
+- [ ] All modules byte-compile
+- [ ] Regression test passes
+- [ ] Committed: =git commit -m "Phase 8 complete"=
+
+* Phase 9: Integration & Cleanup
+Date started: _______ Date completed: _______
+
+- [ ] All compatibility shims removed
+- [ ] No remaining global state
+- [ ] All module headers complete
+- [ ] All functions documented
+- [ ] checkdoc passes on all files
+- [ ] 50+ total tests
+- [ ] All tests pass
+- [ ] Regression test passes
+- [ ] Performance benchmark acceptable
+- [ ] README/manual updated
+- [ ] UPGRADING.md created
+- [ ] Final commit: =git commit -m "org-gantt 2.0"=
+- [ ] Tag: =git tag v2.0.0=
+
+* Final Metrics
+
+| Metric | Target | Actual |
+|--------+--------+--------|
+| Total modules | 8 | |
+| Total functions | ~85 | |
+| Total tests | 50+ | |
+| Max function length | 60 lines | |
+| Max nesting depth | 4 levels | |
+| Global variables | 0 | |
+| Byte-compile warnings | 0 | |
+| Checkdoc warnings | 0 | |
+
+* Notes
+
+Use this space to track issues, decisions, and learnings:
+
+________________________________________________________________________
+
+________________________________________________________________________
+
+________________________________________________________________________
+
+________________________________________________________________________
+
+________________________________________________________________________
+
+________________________________________________________________________
+
+________________________________________________________________________
+
+________________________________________________________________________
+
+________________________________________________________________________
+
+________________________________________________________________________

@@ -1,0 +1,369 @@
+#+TITLE: Phase 3: Extract Utilities
+#+PROPERTY: PHASE 3
+#+PROPERTY: RISK Low
+#+PROPERTY: SESSIONS 1
+
+* Objective
+
+Extract pure utility functions that have no side effects and don't depend on
+global state. These form a foundation for other modules.
+
+* Prompt for Claude Code
+
+#+begin_src markdown
+## Task: Extract Utility Functions to org-gantt-util.el
+
+Read `org-gantt.el` and create `org-gantt-util.el` containing pure utility
+functions. These are functions with no side effects that don't access global
+state.
+
+### Functions to Extract:
+
+1. **String utilities:**
+   - `org-gantt-chomp` (line ~254) - Trim whitespace from strings
+
+2. **Hash table utilities:**
+   - `org-gantt-gethash` (line ~261) - Safe hash table lookup (nil-safe)
+   - `org-gantt-hashtable-equal` (line ~269) - Compare hash tables
+   - `org-gantt-equal` (line ~279) - Compare items including hash tables
+   - `org-gantt-info-list-equal` (line ~285) - Compare info lists
+
+3. **Safe conversion utilities:**
+   - `org-gantt-substring-if` (line ~509) - Safe substring extraction
+   - `org-gantt-string-to-number` (line ~513) - Safe string-to-number
+
+4. **Time comparison utilities** (nil-safe):
+   - `org-gantt-time-less-p` (line ~315) - Time comparison
+   - `org-gantt-time-larger-p` (line ~323) - Time comparison
+   - `org-gantt-time-difference` (line ~623) - Absolute time difference
+
+5. **Tag utilities:**
+   - `org-gantt-get-tags-style` (line ~1034) - Find style for tags
+   - `org-gantt-is-in-tags` (line ~1041) - Check tag membership
+   - `org-gantt-stats-cookie-to-progress` (line ~1047) - Parse [X%] or [X/Y]
+
+6. **Data conversion:**
+   - `org-gantt-plist-to-alist` (line ~1347) - Plist to alist conversion
+
+7. **Debug function** (to be removed or gated):
+   - `dbgmessage` (line ~1354) - Remove entirely or gate behind debug flag
+
+### File Structure:
+
+```elisp
+;;; org-gantt-util.el --- Utility functions for org-gantt -*- lexical-binding: t -*-
+
+;; Copyright (C) 2025 [Author]
+
+;;; Commentary:
+;;
+;; Pure utility functions for org-gantt. These functions:
+;; - Have no side effects
+;; - Do not access global state
+;; - Are safe to call from any context
+;; - Handle nil inputs gracefully where appropriate
+
+;;; Code:
+
+(require 'cl-lib)
+
+;;; String Utilities
+
+(defun org-gantt-util-chomp (str)
+  "Chomp leading and trailing whitespace from STR."
+  ...)
+
+;;; Hash Table Utilities
+
+(defun org-gantt-util-gethash (key table &optional dflt)
+  "Look up KEY in TABLE, returning DFLT if TABLE is nil or KEY not found.
+This is a nil-safe version of `gethash'."
+  ...)
+
+;;; Time Comparison Utilities
+
+(defun org-gantt-util-time-less-p (t1 t2)
+  "Return non-nil if T1 is before T2.
+Handles nil values: any time is considered less than nil."
+  ...)
+
+;;; Tag Utilities
+
+...
+
+;;; Data Conversion
+
+(defun org-gantt-util-plist-to-alist (plist)
+  "Convert PLIST to an association list."
+  ...)
+
+;;; Debug Support
+
+(defvar org-gantt-util-debug nil
+  "When non-nil, enable debug message output.")
+
+(defun org-gantt-util-debug-message (format-string &rest args)
+  "Print debug message if `org-gantt-util-debug' is non-nil.
+FORMAT-STRING and ARGS are passed to `message'."
+  (when org-gantt-util-debug
+    (apply #'message (concat "[org-gantt] " format-string) args)))
+
+(provide 'org-gantt-util)
+;;; org-gantt-util.el ends here
+```
+
+### Naming Convention:
+
+Rename functions from `org-gantt-X` to `org-gantt-util-X` to clarify their 
+module membership. The old names will be aliased in org-gantt.el for 
+backward compatibility during the transition.
+
+### After Creating org-gantt-util.el:
+
+1. Add `(require 'org-gantt-util)` to org-gantt.el
+2. Replace `dbgmessage` calls with `org-gantt-util-debug-message`
+3. Keep the original functions in org-gantt.el but have them call the new ones
+   (for backward compatibility during refactoring)
+
+Example compatibility shim:
+```elisp
+(defun org-gantt-chomp (str)
+  "Deprecated: Use `org-gantt-util-chomp' instead."
+  (org-gantt-util-chomp str))
+```
+
+Or simply use defalias:
+```elisp
+(defalias 'org-gantt-chomp 'org-gantt-util-chomp)
+```
+#+end_src
+
+* Verification Steps
+
+** Step 1: Verify file exists
+
+#+begin_src bash
+test -f org-gantt-util.el && echo "File exists" || echo "MISSING"
+#+end_src
+
+** Step 2: Count functions
+
+#+begin_src bash
+grep -c "^(defun org-gantt-util-" org-gantt-util.el
+#+end_src
+
+Expected: At least 14
+
+** Step 3: Verify no global state access
+
+#+begin_src bash
+grep -E "org-gantt-options|org-gant-hours-per-day-gv|\*org-gantt-" org-gantt-util.el
+#+end_src
+
+Expected: No matches (should return nothing)
+
+** Step 4: Byte-compile
+
+#+begin_src bash
+emacs -batch -L . -f batch-byte-compile org-gantt-util.el
+#+end_src
+
+Expected: No errors or warnings
+
+** Step 5: Run unit tests
+
+#+begin_src bash
+emacs -batch -L . -L test -l ert \
+      -l test/org-gantt-util-test.el \
+      -f ert-run-tests-batch-and-exit
+#+end_src
+
+Expected: All tests pass
+
+** Step 6: Run regression test
+
+#+begin_src bash
+make regression
+#+end_src
+
+Expected: PASSED
+
+* Test File: test/org-gantt-util-test.el
+
+#+begin_src emacs-lisp
+;;; org-gantt-util-test.el --- Tests for org-gantt-util -*- lexical-binding: t -*-
+
+;;; Code:
+
+(require 'ert)
+(require 'org-gantt-util)
+
+;;; String Utilities
+
+(ert-deftest org-gantt-util-test-chomp ()
+  "Test whitespace trimming."
+  (should (string= "hello" (org-gantt-util-chomp "  hello  ")))
+  (should (string= "hello" (org-gantt-util-chomp "\n\thello\n")))
+  (should (string= "hello world" (org-gantt-util-chomp "  hello world  ")))
+  (should (string= "hello" (org-gantt-util-chomp "hello")))
+  (should (string= "" (org-gantt-util-chomp "")))
+  (should (string= "" (org-gantt-util-chomp "   "))))
+
+;;; Hash Table Utilities
+
+(ert-deftest org-gantt-util-test-gethash-normal ()
+  "Test normal hash table lookup."
+  (let ((ht (make-hash-table :test 'equal)))
+    (puthash "key1" "value1" ht)
+    (puthash "key2" 42 ht)
+    (should (string= "value1" (org-gantt-util-gethash "key1" ht)))
+    (should (= 42 (org-gantt-util-gethash "key2" ht)))
+    (should (eq nil (org-gantt-util-gethash "missing" ht)))
+    (should (eq 'default (org-gantt-util-gethash "missing" ht 'default)))))
+
+(ert-deftest org-gantt-util-test-gethash-nil-table ()
+  "Test hash lookup with nil table."
+  (should (eq nil (org-gantt-util-gethash "key" nil)))
+  (should (eq 'default (org-gantt-util-gethash "key" nil 'default))))
+
+(ert-deftest org-gantt-util-test-hashtable-equal ()
+  "Test hash table comparison."
+  (let ((ht1 (make-hash-table :test 'equal))
+        (ht2 (make-hash-table :test 'equal))
+        (ht3 (make-hash-table :test 'equal)))
+    (puthash "a" 1 ht1)
+    (puthash "b" 2 ht1)
+    (puthash "a" 1 ht2)
+    (puthash "b" 2 ht2)
+    (puthash "a" 1 ht3)
+    (puthash "b" 999 ht3)
+    (should (org-gantt-util-hashtable-equal ht1 ht2))
+    (should-not (org-gantt-util-hashtable-equal ht1 ht3))))
+
+;;; Safe Conversion Utilities
+
+(ert-deftest org-gantt-util-test-substring-if ()
+  "Test safe substring extraction."
+  (should (string= "ell" (org-gantt-util-substring-if "hello" 1 4)))
+  (should (eq nil (org-gantt-util-substring-if nil 1 4)))
+  (should (eq nil (org-gantt-util-substring-if "hello" nil 4)))
+  (should (eq nil (org-gantt-util-substring-if "hello" 1 nil)))
+  (should (eq nil (org-gantt-util-substring-if "hello" 4 1))))
+
+(ert-deftest org-gantt-util-test-string-to-number ()
+  "Test safe string to number conversion."
+  (should (= 42 (org-gantt-util-string-to-number "42")))
+  (should (= 0 (org-gantt-util-string-to-number nil)))
+  (should (= 3.14 (org-gantt-util-string-to-number "3.14"))))
+
+;;; Time Comparison Utilities
+
+(ert-deftest org-gantt-util-test-time-less-p ()
+  "Test nil-safe time comparison (less than)."
+  (let ((t1 (encode-time 0 0 12 1 1 2025))
+        (t2 (encode-time 0 0 12 2 1 2025)))
+    ;; Normal comparisons
+    (should (org-gantt-util-time-less-p t1 t2))
+    (should-not (org-gantt-util-time-less-p t2 t1))
+    (should-not (org-gantt-util-time-less-p t1 t1))
+    ;; Nil handling: any time is less than nil
+    (should (org-gantt-util-time-less-p t1 nil))
+    (should-not (org-gantt-util-time-less-p nil t1))
+    (should-not (org-gantt-util-time-less-p nil nil))))
+
+(ert-deftest org-gantt-util-test-time-larger-p ()
+  "Test nil-safe time comparison (larger than)."
+  (let ((t1 (encode-time 0 0 12 1 1 2025))
+        (t2 (encode-time 0 0 12 2 1 2025)))
+    (should (org-gantt-util-time-larger-p t2 t1))
+    (should-not (org-gantt-util-time-larger-p t1 t2))
+    (should-not (org-gantt-util-time-larger-p t1 t1))
+    ;; Nil handling: any time is larger than nil
+    (should (org-gantt-util-time-larger-p t1 nil))
+    (should-not (org-gantt-util-time-larger-p nil t1))
+    (should-not (org-gantt-util-time-larger-p nil nil))))
+
+(ert-deftest org-gantt-util-test-time-difference ()
+  "Test absolute time difference."
+  (let ((t1 (encode-time 0 0 10 1 1 2025))
+        (t2 (encode-time 0 0 14 1 1 2025)))  ; 4 hours later
+    ;; Should be same regardless of order
+    (should (= (time-to-seconds (org-gantt-util-time-difference t1 t2))
+               (time-to-seconds (org-gantt-util-time-difference t2 t1))))
+    ;; Should be 4 hours = 14400 seconds
+    (should (= 14400 (time-to-seconds (org-gantt-util-time-difference t1 t2))))))
+
+;;; Tag Utilities
+
+(ert-deftest org-gantt-util-test-is-in-tags ()
+  "Test tag membership check."
+  (should (org-gantt-util-is-in-tags '("foo" "bar") '("bar")))
+  (should (org-gantt-util-is-in-tags '("foo" "bar") '("baz" "foo")))
+  (should-not (org-gantt-util-is-in-tags '("foo" "bar") '("baz" "qux")))
+  (should-not (org-gantt-util-is-in-tags nil '("foo")))
+  (should-not (org-gantt-util-is-in-tags '("foo") nil))
+  (should-not (org-gantt-util-is-in-tags '("foo" "bar") '())))
+
+(ert-deftest org-gantt-util-test-get-tags-style ()
+  "Test getting style for tags."
+  (let ((styles '(("urgent" . "bar label font=\\color{red}")
+                  ("done" . "bar label font=\\color{green}")
+                  ("blocked" . "bar label font=\\color{gray}"))))
+    (should (string= "bar label font=\\color{red}"
+                     (org-gantt-util-get-tags-style '("urgent" "todo") styles)))
+    (should (string= "bar label font=\\color{green}"
+                     (org-gantt-util-get-tags-style '("done") styles)))
+    (should (eq nil (org-gantt-util-get-tags-style '("normal") styles)))
+    (should (eq nil (org-gantt-util-get-tags-style nil styles)))
+    (should (eq nil (org-gantt-util-get-tags-style '("foo") nil)))))
+
+(ert-deftest org-gantt-util-test-stats-cookie-to-progress ()
+  "Test statistics cookie parsing."
+  ;; Percentage format
+  (should (string= "75" (org-gantt-util-stats-cookie-to-progress "[75%]")))
+  (should (string= "0" (org-gantt-util-stats-cookie-to-progress "[0%]")))
+  (should (string= "100" (org-gantt-util-stats-cookie-to-progress "[100%]")))
+  ;; Fraction format
+  (should (string= "50.0" (org-gantt-util-stats-cookie-to-progress "[2/4]")))
+  (should (string= "75.0" (org-gantt-util-stats-cookie-to-progress "[3/4]")))
+  (should (string= "0.0" (org-gantt-util-stats-cookie-to-progress "[0/5]")))
+  ;; Invalid formats
+  (should (eq nil (org-gantt-util-stats-cookie-to-progress "[invalid]"))))
+
+;;; Data Conversion
+
+(ert-deftest org-gantt-util-test-plist-to-alist ()
+  "Test plist to alist conversion."
+  (should (equal '((:a . 1) (:b . 2) (:c . 3))
+                 (org-gantt-util-plist-to-alist '(:a 1 :b 2 :c 3))))
+  (should (equal nil (org-gantt-util-plist-to-alist nil)))
+  (should (equal '((:only . "one"))
+                 (org-gantt-util-plist-to-alist '(:only "one")))))
+
+;;; Debug Support
+
+(ert-deftest org-gantt-util-test-debug-message ()
+  "Test debug message function."
+  ;; Should not error when debug is off
+  (let ((org-gantt-util-debug nil))
+    (should (eq nil (org-gantt-util-debug-message "test %s" "message"))))
+  ;; Should produce message when debug is on
+  (let ((org-gantt-util-debug t))
+    ;; Just verify it doesn't error
+    (org-gantt-util-debug-message "test %s" "message")))
+
+;;; org-gantt-util-test.el ends here
+#+end_src
+
+* Success Criteria
+
+- [ ] =org-gantt-util.el= exists with 14+ functions
+- [ ] No functions access global state
+- [ ] =dbgmessage= replaced with =org-gantt-util-debug-message=
+- [ ] File byte-compiles without warnings
+- [ ] All 15+ unit tests pass
+- [ ] Regression test passes
+
+* Next Phase
+
+Once all criteria pass, proceed to [[file:05-phase-time.org][Phase 4: Extract Time Module]].

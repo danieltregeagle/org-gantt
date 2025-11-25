@@ -1,0 +1,208 @@
+#+TITLE: org-gantt Refactoring Quick Reference Card
+#+OPTIONS: toc:nil num:nil
+
+* Essential Commands
+
+** Git Workflow (Every Phase)
+#+begin_src bash
+# Before starting a phase
+git add -A && git commit -m "Before phase N"
+
+# After successful phase
+git add -A && git commit -m "Complete phase N"
+
+# If phase fails - rollback
+git checkout .
+git clean -fd
+#+end_src
+
+** Testing Commands
+#+begin_src bash
+# Run all tests
+make test
+
+# Run specific module tests
+make test-util
+make test-time
+make test-parse
+make test-propagate
+make test-render
+make test-core
+
+# Run regression test
+make regression
+
+# Verbose test output
+make test-verbose
+
+# Performance benchmark
+make benchmark
+#+end_src
+
+** Verification Commands
+#+begin_src bash
+# Check for global state
+grep -r "defvar" org-gantt-*.el | grep -v config
+grep -r "setq \*org-gantt" org-gantt-*.el
+
+# Count functions in module
+grep -c "^(defun org-gantt-MODULE-" org-gantt-MODULE.el
+
+# Byte compile single file
+emacs -batch -L . -f batch-byte-compile org-gantt-MODULE.el
+
+# Byte compile all with warnings as errors
+emacs -batch -L . \
+  --eval "(setq byte-compile-error-on-warn t)" \
+  -f batch-byte-compile org-gantt-*.el
+
+# Run checkdoc
+emacs -batch --eval "(checkdoc-file \"org-gantt-MODULE.el\")"
+#+end_src
+
+* Module Summary
+
+| Module | Functions | Key Responsibility |
+|--------+-----------+--------------------|
+| config | 0 (vars only) | defcustom, defconst |
+| context | 6 | State struct, accessors |
+| util | 15 | Pure utilities |
+| time | 17 | Date/time calculations |
+| parse | 13 | Org element parsing |
+| propagate | 15 | Property propagation |
+| render | 12 | LaTeX generation |
+| core | 5 | Entry points |
+
+* Context Struct Quick Reference
+
+#+begin_src emacs-lisp
+;; Create context
+(let ((ctx (org-gantt-context-init 8 '(0 6))))
+
+  ;; Access fields
+  (org-gantt-context-hours-per-day ctx)  ; => 8
+  (org-gantt-context-work-free-days ctx) ; => (0 6)
+  (org-gantt-context-options ctx)        ; => plist
+  (org-gantt-context-changed ctx)        ; => t/nil
+  (org-gantt-context-info-list ctx)      ; => list
+
+  ;; Mutate state
+  (org-gantt-context-mark-changed ctx)
+  (org-gantt-context-reset-for-propagation ctx)
+  (org-gantt-context-next-id ctx)        ; => "org-gantt-id-0"
+  (org-gantt-context-add-link ctx "from" "to")
+
+  ;; Set fields
+  (setf (org-gantt-context-options ctx) '(:key val))
+  (setf (org-gantt-context-info-list ctx) parsed-list))
+#+end_src
+
+* Function Signature Patterns
+
+** Before (Global State)
+#+begin_src emacs-lisp
+(defun org-gantt-is-workday (time)
+  (let ((work-free-days (plist-get org-gantt-options :work-free-days)))
+    ...))
+#+end_src
+
+** After (Explicit Parameters)
+#+begin_src emacs-lisp
+(defun org-gantt-time-is-workday (time work-free-days)
+  "Return non-nil if TIME is a workday.
+WORK-FREE-DAYS is list of day numbers (0=Sun, 6=Sat)."
+  ...)
+#+end_src
+
+** Before (Global Mutation)
+#+begin_src emacs-lisp
+(defun org-gantt-propagate-something (list)
+  (when changed
+    (setq *org-gantt-changed-in-propagation* t))
+  ...)
+#+end_src
+
+** After (Context Mutation)
+#+begin_src emacs-lisp
+(defun org-gantt-propagate-something (ctx)
+  (when changed
+    (org-gantt-context-mark-changed ctx))
+  ...)
+#+end_src
+
+* Key Files to Create Each Phase
+
+| Phase | Files Created |
+|-------+---------------|
+| 0 | test/org-gantt-test-runner.el, Makefile, test-fixtures/* |
+| 1 | org-gantt-config.el, test/org-gantt-config-test.el |
+| 2 | org-gantt-context.el, test/org-gantt-context-test.el |
+| 3 | org-gantt-util.el, test/org-gantt-util-test.el |
+| 4 | org-gantt-time.el, test/org-gantt-time-test.el |
+| 5 | org-gantt-parse.el, test/org-gantt-parse-test.el |
+| 6 | org-gantt-propagate.el, test/org-gantt-propagate-test.el |
+| 7 | org-gantt-render.el, test/org-gantt-render-test.el |
+| 8 | org-gantt-core.el, test/org-gantt-core-test.el |
+| 9 | (cleanup only) UPGRADING.md |
+
+* Common Issues & Solutions
+
+** "Symbol's function definition is void"
+- Missing =(require 'org-gantt-MODULE)=
+- Function renamed but caller not updated
+
+** "Wrong number of arguments"
+- Function signature changed (added ctx parameter)
+- Update all call sites
+
+** Regression test fails
+- Compare outputs: =diff expected-output.tex actual-output.tex=
+- Check date calculations (timezone?)
+- Verify options passed correctly
+
+** Infinite loop in propagation
+- Check =org-gantt-context-mark-changed= calls
+- Add =(message "iteration %d" i)= for debugging
+- Verify max-iterations safeguard
+
+* Claude Code Prompt Template
+
+#+begin_example
+## Task: [TASK NAME]
+
+Read the file `org-gantt.el` and [SPECIFIC ACTION].
+
+### Requirements:
+1. [First requirement]
+2. [Second requirement]
+3. [Third requirement]
+
+### Functions to extract/create:
+- `function-name` (line ~NNN) → `new-function-name`
+  - Change: [description of signature change]
+
+### File structure:
+```elisp
+;;; org-gantt-MODULE.el --- DESCRIPTION -*- lexical-binding: t -*-
+...
+(provide 'org-gantt-MODULE)
+;;; org-gantt-MODULE.el ends here
+```
+
+### Important:
+- Preserve all docstrings
+- Use lexical-binding: t
+- No global state access
+#+end_example
+
+* Success Metrics Target
+
+- [ ] 8 modules total
+- [ ] ~85 functions total
+- [ ] 50+ unit tests
+- [ ] 0 global mutable variables
+- [ ] 0 byte-compile warnings
+- [ ] 0 checkdoc warnings
+- [ ] Max 60 lines per function
+- [ ] Max 4 levels nesting
+- [ ] <1 second for 100 headlines

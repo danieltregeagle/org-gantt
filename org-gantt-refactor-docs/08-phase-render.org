@@ -1,0 +1,563 @@
+#+TITLE: Phase 7: Extract Render Module
+#+PROPERTY: PHASE 7
+#+PROPERTY: RISK Medium
+#+PROPERTY: SESSIONS 2
+
+* Objective
+
+Extract all PGF/TikZ rendering functions to =org-gantt-render.el=. These
+functions convert the processed gantt-info structures into LaTeX output.
+
+* Key Challenge
+
+The large =org-gantt-info-to-pgfgantt= function (175+ lines) needs decomposition
+into smaller, testable functions.
+
+* Prompt for Claude Code (Session 1 of 2)
+
+#+begin_src markdown
+## Task: Extract Render Functions (Part 1 - Core Rendering)
+
+Create `org-gantt-render.el` with rendering functions.
+
+### Functions to Extract:
+
+**Group 1: Rendering decision logic**
+
+1. `org-gantt-will-render-anything-p` (line ~1061) → `org-gantt-render-will-render-p`
+   - Determines if an item should render
+   - CHANGE: Accept options as parameter instead of reading global
+
+2. `org-gantt-has-visible-children-p` (line ~1111) → `org-gantt-render-has-visible-children-p`
+   - Checks if subelements will render
+   - CHANGE: Accept options as parameter
+
+**Group 2: Style calculations**
+
+3. `org-gantt-get-shifts` (line ~1014) → `org-gantt-render-shifts`
+   - Calculates bar position shifts
+   - CHANGE: Accept hours-per-day for compress calculation
+
+**Group 3: Main rendering (needs decomposition)**
+
+4. `org-gantt-info-to-pgfgantt` (line ~1119) → Decompose into:
+   - `org-gantt-render-info` - Main entry point
+   - `org-gantt-render--compute-dates` - Date normalization
+   - `org-gantt-render--element-type` - Determine bar/group/milestone
+   - `org-gantt-render--progress-string` - Build progress attribute
+   - `org-gantt-render--style-string` - Build style attributes
+   - `org-gantt-render--bar-content` - Generate bar/group/milestone LaTeX
+
+5. `org-gantt-info-list-to-pgfgantt` (line ~1296) → `org-gantt-render-info-list`
+   - Renders list of gantt-info
+   - CHANGE: Accept options parameter
+
+6. `org-gantt-linkhash-to-pgfgantt` (line ~1306) → `org-gantt-render-links`
+   - Generates \ganttlink commands
+   - No change needed (pure function)
+
+**Group 4: Style generation**
+
+7. `org-gantt-days-to-vgrid-style` (line ~1318) → `org-gantt-render--vgrid-fragment`
+   - Generates single vgrid style fragment
+   - No change needed
+
+8. `org-gantt-get-vgrid-style` (line ~1327) → `org-gantt-render-vgrid-style`
+   - Generates complete vgrid style
+   - No change needed
+
+### Decomposing org-gantt-info-to-pgfgantt:
+
+The original function is too long. Break it into:
+
+```elisp
+(defun org-gantt-render-info (gi ctx default-date level 
+                               &optional prefix ordered linked last)
+  "Render gantt-info GI to pgfgantt LaTeX code.
+CTX provides options and configuration.
+DEFAULT-DATE is fallback date for items without dates.
+LEVEL is the current nesting level.
+PREFIX is string prepended to output (for indentation).
+ORDERED is non-nil if parent is ordered.
+LINKED is non-nil if this should link to previous.
+LAST is non-nil if this is last item."
+  (when (org-gantt-render-will-render-p gi ctx default-date level)
+    (let* ((options (org-gantt-context-options ctx))
+           (hours-per-day (org-gantt-context-hours-per-day ctx))
+           ;; Compute normalized dates
+           (dates (org-gantt-render--compute-dates gi default-date hours-per-day))
+           (up-start (car dates))
+           (down-end (cdr dates))
+           ;; Determine element type
+           (subelements (gethash :subelements gi))
+           (has-visible-children 
+            (org-gantt-render-has-visible-children-p subelements ctx default-date (1+ level)))
+           (element-type (org-gantt-render--element-type gi has-visible-children linked options))
+           ;; Build attributes
+           (id (gethash org-gantt-id-prop gi))
+           (shift-str (org-gantt-render-shifts up-start down-end 
+                                               (plist-get options :compress)
+                                               has-visible-children))
+           (progress-str (org-gantt-render--progress-string gi options))
+           (style-str (org-gantt-render--style-string gi options has-visible-children)))
+      (concat
+       prefix
+       element-type
+       "[" shift-str
+       (when id (format ", name=%s" id))
+       progress-str
+       style-str
+       "]"
+       "{" (org-gantt-render--escape-name (gethash :name gi)) "}"
+       "{" (format-time-string "%Y-%m-%d" up-start) "}"
+       (unless (org-gantt-render--is-milestone-p gi options)
+         (concat "{" (format-time-string "%Y-%m-%d" down-end) "}"))
+       (and (or subelements (not last)) "\\\\")
+       "\n"
+       ;; Recurse to children
+       (when (and subelements 
+                  (org-gantt-render--should-render-children-p level options))
+         (org-gantt-render-info-list 
+          subelements ctx default-date (1+ level)
+          (concat prefix "  ")
+          (or ordered (gethash :ordered gi))
+          last))))))
+
+(defun org-gantt-render--compute-dates (gi default-date hours-per-day)
+  "Compute normalized start/end dates for GI.
+Returns (UP-START . DOWN-END) cons cell."
+  (let ((start (gethash org-gantt-start-prop gi))
+        (end (gethash org-gantt-end-prop gi)))
+    ;; Apply defaults
+    (cond ((and (not start) (not end))
+           (setq start default-date end default-date))
+          ((not end) (setq end start))
+          ((not start) (setq start end)))
+    ;; Normalize
+    (cons (org-gantt-time-upcast-start start hours-per-day)
+          (org-gantt-time-downcast-end end hours-per-day))))
+
+(defun org-gantt-render--element-type (gi has-visible-children linked options)
+  "Determine the pgfgantt element type for GI."
+  (let ((tags (gethash org-gantt-tags-prop gi))
+        (milestone-tags (plist-get options :milestone-tags)))
+    (cond 
+     ((org-gantt-util-is-in-tags tags milestone-tags)
+      (if linked "\\ganttlinkedmilestone" "\\ganttmilestone"))
+     (has-visible-children
+      (if linked "\\ganttlinkedgroup" "\\ganttgroup"))
+     (t
+      (if linked "\\ganttlinkedbar" "\\ganttbar")))))
+
+(defun org-gantt-render--escape-name (name)
+  "Escape special characters in NAME for LaTeX."
+  (apply #'concat (split-string name "%" t)))
+```
+
+### File Structure:
+
+```elisp
+;;; org-gantt-render.el --- PGF/TikZ output for org-gantt -*- lexical-binding: t -*-
+
+;; Copyright (C) 2025 [Author]
+
+;;; Commentary:
+;;
+;; Functions for rendering gantt-info structures to pgfgantt LaTeX code.
+;; The main entry point is `org-gantt-render-chart' which generates the
+;; complete ganttchart environment.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'org-gantt-config)
+(require 'org-gantt-context)
+(require 'org-gantt-util)
+(require 'org-gantt-time)
+
+;;; Rendering Decision Logic
+
+(defun org-gantt-render-will-render-p (item ctx default-date level)
+  "Return non-nil if ITEM should render at LEVEL.
+CTX provides options. DEFAULT-DATE is used for dateless items."
+  ...)
+
+(defun org-gantt-render-has-visible-children-p (subelements ctx default-date level)
+  "Return non-nil if any of SUBELEMENTS will render."
+  ...)
+
+;;; [Rest of implementation]
+
+(provide 'org-gantt-render)
+;;; org-gantt-render.el ends here
+```
+#+end_src
+
+* Prompt for Claude Code (Session 2 of 2)
+
+#+begin_src markdown
+## Task: Extract Render Functions (Part 2 - Chart Assembly)
+
+Complete `org-gantt-render.el` with chart assembly functions.
+
+### Add Chart Assembly Function:
+
+This is the top-level function that generates the complete LaTeX output:
+
+```elisp
+(defun org-gantt-render-chart (ctx start-date end-date)
+  "Render complete gantt chart from CTX.
+START-DATE and END-DATE define the chart range.
+Returns the complete LaTeX string."
+  (let* ((options (org-gantt-context-options ctx))
+         (compress (plist-get options :compress))
+         (hgrid (plist-get options :hgrid))
+         (tikz-options (plist-get options :tikz-options))
+         (today-value (plist-get options :today))
+         (title-calendar (plist-get options :title-calendar))
+         (compressed-title-calendar (plist-get options :compressed-title-calendar))
+         (weekend-style (plist-get options :weekend-style))
+         (workday-style (plist-get options :workday-style))
+         (additional-params (plist-get options :parameters)))
+    (concat
+     ;; Optional tikzpicture wrapper
+     (when tikz-options
+       (format "\\begin{tikzpicture}[%s]\n" tikz-options))
+     
+     ;; Begin ganttchart with options
+     "\\begin{ganttchart}["
+     "time slot format=isodate"
+     ", vgrid=" (org-gantt-render-vgrid-style start-date weekend-style workday-style)
+     (when hgrid ", hgrid")
+     (when compress ", compress calendar")
+     (when today-value 
+       (format ", today=%s" (org-gantt-render--format-today today-value)))
+     (when additional-params (format ", %s" additional-params))
+     "]"
+     "{" (format-time-string "%Y-%m-%d" start-date) "}"
+     "{" (format-time-string "%Y-%m-%d" end-date) "}\n"
+     
+     ;; Title calendar
+     "\\gantttitlecalendar{"
+     (if compress compressed-title-calendar title-calendar)
+     "}\\\\\n"
+     
+     ;; Main content
+     (org-gantt-render-info-list 
+      (org-gantt-context-info-list ctx)
+      ctx
+      start-date
+      1    ; level
+      nil  ; prefix
+      nil  ; ordered
+      t)   ; last
+     
+     ;; Links
+     (org-gantt-render-links (org-gantt-context-link-hash ctx))
+     
+     ;; End ganttchart
+     "\\end{ganttchart}"
+     
+     ;; Close tikzpicture if opened
+     (when tikz-options "\n\\end{tikzpicture}"))))
+
+(defun org-gantt-render--format-today (today-value)
+  "Format TODAY-VALUE for gantt chart."
+  (format-time-string 
+   "%Y-%m-%d"
+   (if (eq t today-value)
+       (current-time)
+     (apply 'encode-time (org-parse-time-string today-value)))))
+```
+
+### Add Progress String Generation:
+
+```elisp
+(defun org-gantt-render--progress-string (gi options)
+  "Generate progress attribute string for GI."
+  (let* ((show-progress (plist-get options :show-progress))
+         (progress-source (plist-get options :progress-source))
+         (progress (gethash org-gantt-progress-prop gi))
+         (progress-str (and progress (number-to-string progress)))
+         (stats-cookie (gethash org-gantt-stats-cookie-prop gi))
+         (cookie-str (and stats-cookie 
+                         (org-gantt-util-stats-cookie-to-progress stats-cookie)))
+         (clocksum (gethash org-gantt-clocksum-prop gi)))
+    (cond
+     ;; Always show
+     ((eq show-progress 'always)
+      (format ", progress=%s"
+              (pcase progress-source
+                ('clocksum (or progress-str "0"))
+                ('cookie (or cookie-str "0"))
+                ('clocksum-cookie (or progress-str cookie-str "0"))
+                ('cookie-clocksum (or cookie-str progress-str "0"))
+                (_ "0"))))
+     ;; Show if exists
+     ((and (eq show-progress 'if-exists)
+           (pcase progress-source
+             ('clocksum clocksum)
+             ('cookie stats-cookie)
+             ('clocksum-cookie (or clocksum stats-cookie))
+             ('cookie-clocksum (or stats-cookie clocksum))))
+      (format ", progress=%s"
+              (pcase progress-source
+                ('clocksum progress-str)
+                ('cookie cookie-str)
+                ('clocksum-cookie (or progress-str cookie-str))
+                ('cookie-clocksum (or cookie-str progress-str)))))
+     ;; Don't show
+     (t ""))))
+```
+
+### Add Style String Generation:
+
+```elisp
+(defun org-gantt-render--style-string (gi options has-children)
+  "Generate style attribute string for GI."
+  (let* ((start (gethash org-gantt-start-prop gi))
+         (end (gethash org-gantt-end-prop gi))
+         (tags (gethash org-gantt-tags-prop gi))
+         (parent-tags (gethash org-gantt-parent-tags-prop gi))
+         (no-date-headlines (plist-get options :no-date-headlines))
+         (incomplete-date-headlines (plist-get options :incomplete-date-headlines))
+         (inactive-bar-style (plist-get options :inactive-bar-style))
+         (inactive-group-style (plist-get options :inactive-group-style))
+         (tags-bar-style (plist-get options :tags-bar-style))
+         (tags-group-style (plist-get options :tags-group-style))
+         (tag-style-effect (plist-get options :tag-style-effect))
+         (tag-to-subheadlines (eq tag-style-effect 'subheadlines)))
+    (cond
+     ;; Inactive style for missing dates
+     ((or (and (not start) (not end) (eq no-date-headlines 'inactive))
+          (and (or (not start) (not end)) (eq incomplete-date-headlines 'inactive)))
+      (format ", %s" (if has-children inactive-group-style inactive-bar-style)))
+     ;; Tag-based style
+     (has-children
+      (let ((style (or (org-gantt-util-get-tags-style tags tags-group-style)
+                      (and tag-to-subheadlines
+                           (org-gantt-util-get-tags-style parent-tags tags-group-style)))))
+        (if style (format ", %s" style) "")))
+     (t
+      (let ((style (or (org-gantt-util-get-tags-style tags tags-bar-style)
+                      (and tag-to-subheadlines
+                           (org-gantt-util-get-tags-style parent-tags tags-bar-style)))))
+        (if style (format ", %s" style) ""))))))
+```
+#+end_src
+
+* Test File: test/org-gantt-render-test.el
+
+#+begin_src emacs-lisp
+;;; org-gantt-render-test.el --- Tests for org-gantt-render -*- lexical-binding: t -*-
+
+;;; Code:
+
+(require 'ert)
+(require 'org-gantt-render)
+(require 'org-gantt-parse)
+(require 'org-gantt-propagate)
+(require 'org-gantt-context)
+
+(defun org-gantt-test-render-context ()
+  "Create context for render tests."
+  (let ((ctx (org-gantt-context-init 8 '(0 6))))
+    (setf (org-gantt-context-options ctx)
+          '(:milestone-tags ("milestone")
+            :no-date-headlines keep
+            :incomplete-date-headlines keep
+            :show-progress nil
+            :title-calendar "year, month=name, day"
+            :compressed-title-calendar "year, month"
+            :weekend-style "{black}"
+            :workday-style "{dashed}"))
+    ctx))
+
+(defun org-gantt-test-full-render (org-string)
+  "Parse, propagate, and render ORG-STRING."
+  (let ((ctx (org-gantt-test-render-context)))
+    (with-temp-buffer
+      (insert org-string)
+      (org-mode)
+      (setf (org-gantt-context-info-list ctx)
+            (org-gantt-parse-crawl-headlines (org-element-parse-buffer) ctx)))
+    (org-gantt-propagate-all ctx)
+    (let* ((start (encode-time 0 0 0 1 1 2025))
+           (end (encode-time 0 0 0 31 1 2025)))
+      (org-gantt-render-chart ctx start end))))
+
+;;; Element Type Tests
+
+(ert-deftest org-gantt-render-test-bar ()
+  "Test rendering a simple bar."
+  (let ((result (org-gantt-test-full-render
+                 "* Task\nSCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-10 Fri>\n")))
+    (should (string-match "\\\\ganttbar" result))
+    (should (string-match "Task" result))
+    (should (string-match "2025-01-06" result))
+    (should (string-match "2025-01-10" result))))
+
+(ert-deftest org-gantt-render-test-group ()
+  "Test rendering a group with children."
+  (let ((result (org-gantt-test-full-render
+                 (concat "* Parent\n"
+                        "** Child 1\nSCHEDULED: <2025-01-06 Mon>\n"
+                        "** Child 2\nSCHEDULED: <2025-01-08 Wed>\n"))))
+    (should (string-match "\\\\ganttgroup" result))
+    (should (string-match "\\\\ganttbar" result))
+    (should (string-match "Parent" result))
+    (should (string-match "Child 1" result))))
+
+(ert-deftest org-gantt-render-test-milestone ()
+  "Test rendering a milestone."
+  (let ((result (org-gantt-test-full-render
+                 "* Release :milestone:\nDEADLINE: <2025-01-15 Wed>\n")))
+    (should (string-match "\\\\ganttmilestone" result))
+    (should (string-match "Release" result))))
+
+;;; Linked Elements Tests
+
+(ert-deftest org-gantt-render-test-ordered-linked ()
+  "Test that ordered elements create linked bars."
+  (let ((result (org-gantt-test-full-render
+                 (concat "* Project\n:PROPERTIES:\n:ORDERED: t\n:END:\n"
+                        "** Task 1\nSCHEDULED: <2025-01-06 Mon>\n:PROPERTIES:\n:EFFORT: 2d\n:END:\n"
+                        "** Task 2\n:PROPERTIES:\n:EFFORT: 2d\n:END:\n"))))
+    (should (string-match "\\\\ganttbar" result))
+    (should (string-match "\\\\ganttlinkedbar" result))))
+
+;;; Progress Tests
+
+(ert-deftest org-gantt-render-test-progress-always ()
+  "Test progress rendering with show-progress=always."
+  (let* ((ctx (org-gantt-test-render-context)))
+    (setf (plist-get (org-gantt-context-options ctx) :show-progress) 'always)
+    (setf (plist-get (org-gantt-context-options ctx) :progress-source) 'clocksum)
+    (with-temp-buffer
+      (insert "* Task\n:PROPERTIES:\n:EFFORT: 2d\n:CLOCKSUM: 8:00\n:END:\nSCHEDULED: <2025-01-06 Mon>\n")
+      (org-mode)
+      (setf (org-gantt-context-info-list ctx)
+            (org-gantt-parse-crawl-headlines (org-element-parse-buffer) ctx)))
+    (org-gantt-propagate-all ctx)
+    (let* ((start (encode-time 0 0 0 1 1 2025))
+           (end (encode-time 0 0 0 31 1 2025))
+           (result (org-gantt-render-chart ctx start end)))
+      (should (string-match "progress=" result)))))
+
+;;; Style Tests
+
+(ert-deftest org-gantt-render-test-tag-style ()
+  "Test tag-based styling."
+  (let* ((ctx (org-gantt-test-render-context)))
+    (setf (plist-get (org-gantt-context-options ctx) :tags-bar-style)
+          '(("urgent" . "bar label font=\\color{red}")))
+    (with-temp-buffer
+      (insert "* Task :urgent:\nSCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-10 Fri>\n")
+      (org-mode)
+      (setf (org-gantt-context-info-list ctx)
+            (org-gantt-parse-crawl-headlines (org-element-parse-buffer) ctx)))
+    (org-gantt-propagate-all ctx)
+    (let* ((start (encode-time 0 0 0 1 1 2025))
+           (end (encode-time 0 0 0 31 1 2025))
+           (result (org-gantt-render-chart ctx start end)))
+      (should (string-match "bar label font" result)))))
+
+;;; VGrid Style Tests
+
+(ert-deftest org-gantt-render-test-vgrid-style ()
+  "Test vgrid style generation."
+  (let* ((monday (encode-time 0 0 0 6 1 2025))
+         (style (org-gantt-render-vgrid-style monday "{black}" "{dashed}")))
+    (should (string-match "black" style))
+    (should (string-match "dashed" style))))
+
+;;; Chart Structure Tests
+
+(ert-deftest org-gantt-render-test-chart-structure ()
+  "Test complete chart structure."
+  (let ((result (org-gantt-test-full-render
+                 "* Task\nSCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-10 Fri>\n")))
+    (should (string-match "\\\\begin{ganttchart}" result))
+    (should (string-match "\\\\gantttitlecalendar" result))
+    (should (string-match "\\\\end{ganttchart}" result))))
+
+(ert-deftest org-gantt-render-test-tikz-wrapper ()
+  "Test optional tikzpicture wrapper."
+  (let* ((ctx (org-gantt-test-render-context)))
+    (setf (plist-get (org-gantt-context-options ctx) :tikz-options) "scale=1.5")
+    (with-temp-buffer
+      (insert "* Task\nSCHEDULED: <2025-01-06 Mon>\n")
+      (org-mode)
+      (setf (org-gantt-context-info-list ctx)
+            (org-gantt-parse-crawl-headlines (org-element-parse-buffer) ctx)))
+    (org-gantt-propagate-all ctx)
+    (let* ((start (encode-time 0 0 0 1 1 2025))
+           (end (encode-time 0 0 0 31 1 2025))
+           (result (org-gantt-render-chart ctx start end)))
+      (should (string-match "\\\\begin{tikzpicture}" result))
+      (should (string-match "\\\\end{tikzpicture}" result)))))
+
+;;; Link Rendering Tests
+
+(ert-deftest org-gantt-render-test-links ()
+  "Test ganttlink rendering."
+  (let ((hash (make-hash-table :test 'equal)))
+    (puthash "task-a" '("task-b" "task-c") hash)
+    (let ((result (org-gantt-render-links hash)))
+      (should (string-match "\\\\ganttlink{task-a}{task-b}" result))
+      (should (string-match "\\\\ganttlink{task-a}{task-c}" result)))))
+
+;;; org-gantt-render-test.el ends here
+#+end_src
+
+* Verification Steps
+
+** Step 1: Function count
+
+#+begin_src bash
+grep -c "^(defun org-gantt-render" org-gantt-render.el
+#+end_src
+
+Expected: 10+ functions
+
+** Step 2: No global state
+
+#+begin_src bash
+grep -E "\*org-gantt-|org-gantt-options[^-]" org-gantt-render.el
+#+end_src
+
+Expected: No matches
+
+** Step 3: Byte-compile
+
+#+begin_src bash
+emacs -batch -L . -f batch-byte-compile org-gantt-render.el
+#+end_src
+
+** Step 4: Unit tests
+
+#+begin_src bash
+emacs -batch -L . -L test -l ert \
+      -l test/org-gantt-render-test.el \
+      -f ert-run-tests-batch-and-exit
+#+end_src
+
+** Step 5: Regression
+
+#+begin_src bash
+make regression
+#+end_src
+
+* Success Criteria
+
+- [ ] =org-gantt-render.el= exists with 10+ functions
+- [ ] =org-gantt-info-to-pgfgantt= decomposed into smaller functions
+- [ ] =org-gantt-render-chart= assembles complete output
+- [ ] No function longer than 60 lines
+- [ ] File byte-compiles without warnings
+- [ ] All render tests pass
+- [ ] Regression test passes
+
+* Next Phase
+
+Once all criteria pass, proceed to [[file:09-phase-core.org][Phase 8: Refactor Core]].

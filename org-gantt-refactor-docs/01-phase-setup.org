@@ -1,0 +1,281 @@
+#+TITLE: Phase 0: Test Infrastructure Setup
+#+PROPERTY: PHASE 0
+#+PROPERTY: RISK None
+#+PROPERTY: SESSIONS 1
+
+* Objective
+
+Set up the test infrastructure before any refactoring begins. This establishes
+the baseline and verification framework.
+
+* Prompt for Claude Code
+
+#+begin_src markdown
+## Task: Set Up Test Infrastructure for org-gantt.el Refactoring
+
+Create the test infrastructure for the org-gantt.el refactoring project.
+
+### Files to Create:
+
+1. **test/org-gantt-test-runner.el** - Master test runner
+2. **test/test-fixtures/sample-gantt.org** - Test fixture with known output
+3. **test/test-fixtures/expected-output.tex** - Expected LaTeX output
+4. **Makefile** - Build and test automation
+
+### Requirements:
+
+#### test/org-gantt-test-runner.el:
+- Load all test files
+- Provide `org-gantt-run-all-tests` command
+- Provide `org-gantt-run-regression-test` that compares output
+- Exit with appropriate code for CI
+
+#### test/test-fixtures/sample-gantt.org:
+Create a comprehensive test org file that exercises:
+- Simple tasks with SCHEDULED/DEADLINE
+- Nested headlines (3 levels)
+- ORDERED property for sequential tasks
+- Effort estimates
+- Tasks without dates (to test no-date-headlines)
+- Tasks with only start OR end (incomplete-date-headlines)
+- Milestones (tagged with :milestone:)
+- Progress cookies [50%] and [2/4]
+- CLOCKSUM entries
+- Custom tags for style testing
+- LINKED-TO property
+
+#### Makefile:
+```makefile
+EMACS ?= emacs
+BATCH = $(EMACS) -batch -Q -L .
+
+.PHONY: test test-quick clean compile
+
+test: compile
+	$(BATCH) -L test -l test/org-gantt-test-runner.el \
+	         -f org-gantt-run-all-tests
+
+test-quick:
+	$(BATCH) -L test -l ert -l test/org-gantt-util-test.el \
+	         -f ert-run-tests-batch-and-exit
+
+regression:
+	$(BATCH) -L test -l test/org-gantt-test-runner.el \
+	         -f org-gantt-run-regression-test
+
+compile:
+	$(BATCH) -f batch-byte-compile org-gantt*.el
+
+clean:
+	rm -f *.elc test/*.elc
+```
+
+### Output:
+Create all files with proper Emacs Lisp headers and documentation.
+#+end_src
+
+* Files to Create
+
+** test/org-gantt-test-runner.el
+
+#+begin_src emacs-lisp
+;;; org-gantt-test-runner.el --- Test runner for org-gantt -*- lexical-binding: t -*-
+
+;;; Commentary:
+;; Master test runner for org-gantt refactoring verification.
+
+;;; Code:
+
+(require 'ert)
+
+(defvar org-gantt-test-directory
+  (file-name-directory (or load-file-name buffer-file-name))
+  "Directory containing test files.")
+
+(defvar org-gantt-fixture-directory
+  (expand-file-name "test-fixtures" org-gantt-test-directory)
+  "Directory containing test fixtures.")
+
+(defun org-gantt-test-load-all ()
+  "Load all org-gantt test files."
+  (dolist (file (directory-files org-gantt-test-directory t "-test\\.el$"))
+    (load file nil t)))
+
+(defun org-gantt-run-all-tests ()
+  "Run all org-gantt tests and exit with appropriate code."
+  (org-gantt-test-load-all)
+  (let ((stats (ert-run-tests-batch-and-exit)))
+    stats))
+
+(defun org-gantt-run-regression-test ()
+  "Run regression test comparing output to expected."
+  (require 'org-gantt)
+  (let* ((test-file (expand-file-name "sample-gantt.org" 
+                                      org-gantt-fixture-directory))
+         (expected-file (expand-file-name "expected-output.tex"
+                                          org-gantt-fixture-directory))
+         (expected (with-temp-buffer
+                     (insert-file-contents expected-file)
+                     (buffer-string)))
+         (actual (with-temp-buffer
+                   (insert-file-contents test-file)
+                   (org-mode)
+                   (goto-char (point-min))
+                   (search-forward "#+BEGIN: org-gantt-chart")
+                   (forward-line 1)
+                   (let ((start (point)))
+                     (search-forward "#+END:")
+                     (forward-line -1)
+                     (buffer-substring-no-properties start (point))))))
+    (if (string= (string-trim expected) (string-trim actual))
+        (progn
+          (message "Regression test PASSED")
+          (kill-emacs 0))
+      (message "Regression test FAILED")
+      (message "Expected:\n%s" expected)
+      (message "Actual:\n%s" actual)
+      (kill-emacs 1))))
+
+(provide 'org-gantt-test-runner)
+;;; org-gantt-test-runner.el ends here
+#+end_src
+
+** test/test-fixtures/sample-gantt.org
+
+#+begin_src org
+#+TITLE: org-gantt Test Fixture
+#+STARTUP: logdone
+
+* Test Project :project:
+SCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-31 Fri>
+:PROPERTIES:
+:ORDERED: t
+:ID: test-project-root
+:END:
+
+** Phase 1: Setup
+SCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-10 Fri>
+:PROPERTIES:
+:EFFORT: 4d
+:END:
+
+*** Task 1.1: Requirements
+SCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-07 Tue>
+:PROPERTIES:
+:EFFORT: 1d
+:CLOCKSUM: 4:00
+:END:
+
+*** Task 1.2: Design
+SCHEDULED: <2025-01-08 Wed> DEADLINE: <2025-01-10 Fri>
+:PROPERTIES:
+:EFFORT: 2d
+:END:
+
+** Phase 2: Implementation [50%]
+:PROPERTIES:
+:EFFORT: 10d
+:ORDERED: t
+:END:
+
+*** Task 2.1: Core Module
+:PROPERTIES:
+:EFFORT: 3d
+:END:
+
+*** Task 2.2: Tests :testing:
+:PROPERTIES:
+:EFFORT: 2d
+:LINKED-TO: test-project-root
+:END:
+
+** Incomplete Start Only
+SCHEDULED: <2025-01-20 Mon>
+:PROPERTIES:
+:EFFORT: 1d
+:END:
+
+** Incomplete End Only
+DEADLINE: <2025-01-25 Sat>
+:PROPERTIES:
+:EFFORT: 1d
+:END:
+
+** No Dates Task
+:PROPERTIES:
+:EFFORT: 2d
+:END:
+
+** Release Milestone :milestone:
+DEADLINE: <2025-01-31 Fri>
+
+* Gantt Chart Output
+
+#+BEGIN: org-gantt-chart :id "test-project-root" :file nil
+#+END:
+#+end_src
+
+* Verification Steps
+
+After Claude Code creates the files:
+
+** Step 1: Verify files exist
+
+#+begin_src bash
+ls -la test/
+ls -la test/test-fixtures/
+ls -la Makefile
+#+end_src
+
+Expected: All three locations contain the expected files.
+
+** Step 2: Verify test runner loads
+
+#+begin_src bash
+emacs -batch -L . -L test -l test/org-gantt-test-runner.el \
+      --eval "(message \"Test runner loaded successfully\")"
+#+end_src
+
+Expected: Message "Test runner loaded successfully" with exit code 0.
+
+** Step 3: Verify Makefile works
+
+#+begin_src bash
+make --dry-run test
+make --dry-run compile
+#+end_src
+
+Expected: Commands shown without errors.
+
+** Step 4: Generate baseline expected output
+
+Before any refactoring, generate the expected output:
+
+#+begin_src bash
+emacs -batch -L . -l org-gantt.el \
+      --eval "(progn
+                (find-file \"test/test-fixtures/sample-gantt.org\")
+                (org-mode)
+                (goto-char (point-min))
+                (search-forward \"#+BEGIN: org-gantt-chart\")
+                (org-update-dblock)
+                (search-forward \"#+BEGIN: org-gantt-chart\")
+                (forward-line 1)
+                (let ((start (point)))
+                  (search-forward \"#+END:\")
+                  (forward-line -1)
+                  (write-region start (point) 
+                               \"test/test-fixtures/expected-output.tex\")))"
+#+end_src
+
+* Success Criteria
+
+- [ ] =test/org-gantt-test-runner.el= exists and loads without error
+- [ ] =test/test-fixtures/sample-gantt.org= exists with all test cases
+- [ ] =test/test-fixtures/expected-output.tex= contains baseline output
+- [ ] =Makefile= exists with test, compile, and clean targets
+- [ ] =make compile= runs without errors on original org-gantt.el
+
+* Next Phase
+
+Once all criteria pass, proceed to [[file:02-phase-config.org][Phase 1: Extract Configuration]].

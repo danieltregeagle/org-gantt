@@ -1,0 +1,277 @@
+#+TITLE: Phase 2: Create Context Struct
+#+PROPERTY: PHASE 2
+#+PROPERTY: RISK Low
+#+PROPERTY: SESSIONS 1
+
+* Objective
+
+Create the =org-gantt-context= struct that will replace all global state variables.
+This struct will be threaded through functions in later phases.
+
+* Prompt for Claude Code
+
+#+begin_src markdown
+## Task: Create org-gantt-context.el
+
+Create a new file `org-gantt-context.el` that defines the context structure
+which will replace global state variables in the org-gantt refactoring.
+
+### Background
+
+The original org-gantt.el uses these global variables:
+- `org-gant-hours-per-day-gv` - hours per workday
+- `org-gantt-options` - plist of current chart options  
+- `*org-gantt-changed-in-propagation*` - flag for propagation loop
+- `*org-gantt-id-counter*` - counter for generating unique IDs
+- `*org-gantt-link-hash*` - hash table storing link relationships
+
+These need to be bundled into a context struct that gets passed through
+the function call chain.
+
+### File Content: org-gantt-context.el
+
+```elisp
+;;; org-gantt-context.el --- Context structure for org-gantt -*- lexical-binding: t -*-
+
+;; Copyright (C) 2025 [Author]
+
+;;; Commentary:
+;;
+;; This file defines the `org-gantt-context` structure that holds all state
+;; for a single Gantt chart generation. By encapsulating state in this struct
+;; instead of global variables, we enable:
+;;
+;; - Multiple charts to be generated concurrently
+;; - Easier testing with isolated state
+;; - Clearer data flow through the codebase
+;;
+;; The context is created at the start of chart generation and threaded
+;; through all processing functions.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'org-gantt-config)
+
+(cl-defstruct (org-gantt-context
+               (:constructor org-gantt-context-create)
+               (:copier nil))
+  "Context for org-gantt chart generation.
+  
+This struct holds all state that was previously stored in global variables.
+It is created once per chart generation and passed through all functions."
+  
+  ;; Configuration (set at creation, read-only during processing)
+  (hours-per-day org-gantt-default-hours-per-day
+                 :type integer
+                 :documentation "Working hours per day for effort calculations.")
+  
+  (work-free-days org-gantt-default-work-free-days
+                  :type list
+                  :documentation "List of day-of-week numbers that are not workdays.
+0 = Sunday, 6 = Saturday.")
+  
+  ;; Options plist (set from chart parameters)
+  (options nil
+           :type list
+           :documentation "Property list of chart generation options.
+Includes :no-date-headlines, :incomplete-date-headlines, :show-progress, etc.")
+  
+  ;; Mutable state during processing
+  (changed nil
+           :type boolean
+           :documentation "Flag indicating if propagation made any changes.
+Used to determine when the fixed-point iteration should stop.")
+  
+  (id-counter 0
+              :type integer
+              :documentation "Counter for generating unique element IDs.
+Incremented each time a new ID is needed.")
+  
+  (link-hash nil
+             :documentation "Hash table mapping source IDs to lists of target IDs.
+Built during propagation, used during rendering to create \\ganttlink commands.")
+  
+  ;; Processed data
+  (info-list nil
+             :type list
+             :documentation "List of parsed headline info hash tables.
+Each hash table contains :name, :startdate, :enddate, :effort, :subelements, etc."))
+
+(defun org-gantt-context-init (&optional hours-per-day work-free-days)
+  "Create and initialize a new org-gantt context.
+  
+HOURS-PER-DAY defaults to `org-gantt-default-hours-per-day'.
+WORK-FREE-DAYS defaults to `org-gantt-default-work-free-days'.
+
+Returns an initialized context ready for use."
+  (org-gantt-context-create
+   :hours-per-day (or hours-per-day org-gantt-default-hours-per-day)
+   :work-free-days (or work-free-days org-gantt-default-work-free-days)
+   :options nil
+   :changed t  ; Start true to enter propagation loop
+   :id-counter 0
+   :link-hash (make-hash-table :test 'equal)
+   :info-list nil))
+
+(defun org-gantt-context-reset-for-propagation (ctx)
+  "Reset CTX state for a new propagation iteration.
+Sets the changed flag to nil."
+  (setf (org-gantt-context-changed ctx) nil))
+
+(defun org-gantt-context-mark-changed (ctx)
+  "Mark CTX as having changed during propagation."
+  (setf (org-gantt-context-changed ctx) t))
+
+(defun org-gantt-context-next-id (ctx)
+  "Generate and return the next unique ID from CTX.
+Increments the internal counter."
+  (let ((id (org-gantt-context-id-counter ctx)))
+    (setf (org-gantt-context-id-counter ctx) (1+ id))
+    (format "org-gantt-id-%d" id)))
+
+(defun org-gantt-context-add-link (ctx from-id to-id)
+  "Add a link from FROM-ID to TO-ID in CTX's link hash.
+Links are stored as FROM-ID -> (list of TO-IDs)."
+  (let* ((hash (org-gantt-context-link-hash ctx))
+         (existing (gethash from-id hash)))
+    (puthash from-id (cons to-id existing) hash)))
+
+(defun org-gantt-context-get-option (ctx key &optional default)
+  "Get option KEY from CTX's options plist.
+Returns DEFAULT if KEY is not present."
+  (let ((options (org-gantt-context-options ctx)))
+    (if (plist-member options key)
+        (plist-get options key)
+      default)))
+
+(provide 'org-gantt-context)
+;;; org-gantt-context.el ends here
+```
+
+### Do NOT modify org-gantt.el yet
+
+The context struct will be integrated in later phases. For now, just create
+the standalone module.
+#+end_src
+
+* Verification Steps
+
+** Step 1: Verify file exists
+
+#+begin_src bash
+test -f org-gantt-context.el && echo "File exists" || echo "MISSING"
+#+end_src
+
+** Step 2: Verify struct is defined
+
+#+begin_src bash
+grep "cl-defstruct.*org-gantt-context" org-gantt-context.el
+#+end_src
+
+Expected: Match found
+
+** Step 3: Verify helper functions exist
+
+#+begin_src bash
+grep -c "^(defun org-gantt-context-" org-gantt-context.el
+#+end_src
+
+Expected: At least 5 (init, reset, mark-changed, next-id, add-link, get-option)
+
+** Step 4: Byte-compile
+
+#+begin_src bash
+emacs -batch -L . -f batch-byte-compile org-gantt-context.el
+#+end_src
+
+Expected: No errors
+
+** Step 5: Load test
+
+#+begin_src bash
+emacs -batch -L . -l org-gantt-context.el \
+      --eval "(let ((ctx (org-gantt-context-init)))
+                (message \"hours-per-day: %s\" (org-gantt-context-hours-per-day ctx))
+                (message \"id: %s\" (org-gantt-context-next-id ctx))
+                (message \"id: %s\" (org-gantt-context-next-id ctx)))"
+#+end_src
+
+Expected: Shows hours-per-day: 8, id: org-gantt-id-0, id: org-gantt-id-1
+
+* Test File: test/org-gantt-context-test.el
+
+#+begin_src emacs-lisp
+;;; org-gantt-context-test.el --- Tests for org-gantt-context -*- lexical-binding: t -*-
+
+;;; Code:
+
+(require 'ert)
+(require 'org-gantt-context)
+
+(ert-deftest org-gantt-context-test-create-defaults ()
+  "Test context creation with defaults."
+  (let ((ctx (org-gantt-context-init)))
+    (should (= 8 (org-gantt-context-hours-per-day ctx)))
+    (should (equal '(0 6) (org-gantt-context-work-free-days ctx)))
+    (should (eq t (org-gantt-context-changed ctx)))
+    (should (= 0 (org-gantt-context-id-counter ctx)))
+    (should (hash-table-p (org-gantt-context-link-hash ctx)))))
+
+(ert-deftest org-gantt-context-test-create-custom ()
+  "Test context creation with custom values."
+  (let ((ctx (org-gantt-context-init 6 '(0))))
+    (should (= 6 (org-gantt-context-hours-per-day ctx)))
+    (should (equal '(0) (org-gantt-context-work-free-days ctx)))))
+
+(ert-deftest org-gantt-context-test-id-generation ()
+  "Test unique ID generation."
+  (let ((ctx (org-gantt-context-init)))
+    (should (string= "org-gantt-id-0" (org-gantt-context-next-id ctx)))
+    (should (string= "org-gantt-id-1" (org-gantt-context-next-id ctx)))
+    (should (string= "org-gantt-id-2" (org-gantt-context-next-id ctx)))
+    (should (= 3 (org-gantt-context-id-counter ctx)))))
+
+(ert-deftest org-gantt-context-test-changed-flag ()
+  "Test changed flag manipulation."
+  (let ((ctx (org-gantt-context-init)))
+    (should (eq t (org-gantt-context-changed ctx)))
+    (org-gantt-context-reset-for-propagation ctx)
+    (should (eq nil (org-gantt-context-changed ctx)))
+    (org-gantt-context-mark-changed ctx)
+    (should (eq t (org-gantt-context-changed ctx)))))
+
+(ert-deftest org-gantt-context-test-link-hash ()
+  "Test link hash operations."
+  (let ((ctx (org-gantt-context-init)))
+    (org-gantt-context-add-link ctx "task-a" "task-b")
+    (org-gantt-context-add-link ctx "task-a" "task-c")
+    (org-gantt-context-add-link ctx "task-b" "task-d")
+    (let ((hash (org-gantt-context-link-hash ctx)))
+      (should (equal '("task-c" "task-b") (gethash "task-a" hash)))
+      (should (equal '("task-d") (gethash "task-b" hash))))))
+
+(ert-deftest org-gantt-context-test-options ()
+  "Test options access."
+  (let ((ctx (org-gantt-context-init)))
+    (setf (org-gantt-context-options ctx)
+          '(:show-progress always :maxlevel 3))
+    (should (eq 'always (org-gantt-context-get-option ctx :show-progress)))
+    (should (= 3 (org-gantt-context-get-option ctx :maxlevel)))
+    (should (eq nil (org-gantt-context-get-option ctx :missing)))
+    (should (eq 'default (org-gantt-context-get-option ctx :missing 'default)))))
+
+;;; org-gantt-context-test.el ends here
+#+end_src
+
+* Success Criteria
+
+- [ ] =org-gantt-context.el= exists and defines =org-gantt-context= struct
+- [ ] All 6+ helper functions are defined
+- [ ] File byte-compiles without warnings
+- [ ] All context tests pass
+- [ ] Regression test still passes (no changes to main code yet)
+
+* Next Phase
+
+Once all criteria pass, proceed to [[file:04-phase-util.org][Phase 3: Extract Utilities]].

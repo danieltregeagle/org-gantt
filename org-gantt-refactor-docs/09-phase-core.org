@@ -1,0 +1,549 @@
+#+TITLE: Phase 8: Refactor Core Module
+#+PROPERTY: PHASE 8
+#+PROPERTY: RISK High
+#+PROPERTY: SESSIONS 2
+
+* Objective
+
+Refactor =org-gantt-core.el= to use the new modular architecture. This is the
+final integration phase where the main entry point is rewired to use all the
+extracted modules.
+
+* Key Challenge
+
+The =org-dblock-write:org-gantt-chart= function (175+ lines) currently:
+1. Sets up global state
+2. Parses parameters
+3. Finds target element
+4. Runs propagation loop
+5. Generates output
+
+It needs to be decomposed and rewired to use the context-based architecture.
+
+* Prompt for Claude Code (Session 1 of 2)
+
+#+begin_src markdown
+## Task: Create org-gantt-core.el (Part 1 - Parameter Handling)
+
+Create `org-gantt-core.el` with the refactored main entry points.
+
+### Functions to Create:
+
+**1. Parameter parsing and validation**
+
+```elisp
+(defun org-gantt-core--parse-parameters (params)
+  "Parse and validate dynamic block PARAMS.
+Returns a normalized plist with all options resolved to defaults."
+  (list
+   :id (plist-get params :id)
+   :id-subelements (plist-get params :use-id-subheadlines)
+   :hours-per-day (or (plist-get params :hours-per-day)
+                     org-gantt-default-hours-per-day)
+   :work-free-days (or (plist-get params :work-free-days)
+                      org-gantt-default-work-free-days)
+   :start-date (plist-get params :start-date)
+   :end-date (plist-get params :end-date)
+   :title-calendar (or (plist-get params :title-calendar)
+                      org-gantt-default-title-calendar)
+   :compressed-title-calendar (or (plist-get params :compressed-title-calendar)
+                                 org-gantt-default-compressed-title-calendar)
+   :hgrid (if (plist-member params :hgrid)
+              (plist-get params :hgrid)
+            org-gantt-default-hgrid)
+   :compress (plist-get params :compress)
+   :tikz-options (plist-get params :tikz-options)
+   :today (plist-get params :today)
+   :parameters (plist-get params :parameters)
+   :weekend-style (or (plist-get params :weekend-style)
+                     org-gantt-default-weekend-style)
+   :workday-style (or (plist-get params :workday-style)
+                     org-gantt-default-workday-style)
+   :no-date-headlines (or (plist-get params :no-date-headlines)
+                         org-gantt-default-no-date-headlines)
+   :incomplete-date-headlines (or (plist-get params :incomplete-date-headlines)
+                                 org-gantt-default-incomplete-date-headlines)
+   :inactive-bar-style (or (plist-get params :inactive-bar-style)
+                          org-gantt-default-inactive-bar-style)
+   :inactive-group-style (or (plist-get params :inactive-group-style)
+                            org-gantt-default-inactive-group-style)
+   :tags-bar-style (or (plist-get params :tags-bar-style)
+                      org-gantt-default-tags-bar-style)
+   :tags-group-style (or (plist-get params :tags-group-style)
+                        org-gantt-default-tags-group-style)
+   :tag-style-effect (or (plist-get params :tag-style-effect)
+                        org-gantt-default-tag-style-effect)
+   :use-tags (or (plist-get params :use-tags)
+                org-gantt-default-use-tags)
+   :ignore-tags (or (plist-get params :ignore-tags)
+                   org-gantt-default-ignore-tags)
+   :milestone-tags (or (plist-get params :milestone-tags)
+                      org-gantt-default-milestone-tags)
+   :linked-to-property-keys (or (plist-get params :linked-to-property-keys)
+                               org-gantt-default-linked-to-property-keys)
+   :show-progress (or (plist-get params :show-progress)
+                     org-gantt-default-show-progress)
+   :progress-source (or (plist-get params :progress-source)
+                       org-gantt-default-progress-source)
+   :calc-progress (plist-get params :calc-progress)
+   :maxlevel (or (plist-get params :maxlevel)
+                org-gantt-default-maxlevel)
+   :file (plist-get params :file)))
+```
+
+**2. Target element resolution**
+
+```elisp
+(defun org-gantt-core--find-target (params buffer)
+  "Find the org element to process based on PARAMS in BUFFER.
+Returns the parsed org-element data to process."
+  (with-current-buffer buffer
+    (let* ((id (plist-get params :id))
+           (id-subelements (plist-get params :id-subelements))
+           (parsed-buffer (org-element-parse-buffer)))
+      (cond
+       ;; No ID or global - process entire buffer
+       ((or (not id) (eq id 'global))
+        parsed-buffer)
+       ;; Local - not yet implemented
+       ((eq id 'local)
+        (error "Local id handling not yet implemented"))
+       ;; String ID - find specific headline
+       ((stringp id)
+        (let ((element (org-element-map parsed-buffer 'headline
+                         (lambda (hl)
+                           (when (equal (org-element-property :ID hl) id)
+                             hl))
+                         nil t)))
+          (unless element
+            (error "Could not find element with ID: %s" id))
+          (if id-subelements
+              (cdr element)
+            element)))
+       ;; Symbol ID - convert to string and try again
+       ((symbolp id)
+        (let ((id-str (symbol-name id)))
+          (if (string-match "^file:\\(.*\\)" id-str)
+              (error "File references should be handled before calling this function")
+            (plist-put params :id id-str)
+            (org-gantt-core--find-target params buffer))))
+       (t
+        (error "Invalid :id value: %s" id))))))
+```
+
+**3. Context initialization**
+
+```elisp
+(defun org-gantt-core--build-context (params parsed-data)
+  "Create and initialize context from PARAMS and PARSED-DATA."
+  (let* ((hours-per-day (plist-get params :hours-per-day))
+         (work-free-days (plist-get params :work-free-days))
+         (ctx (org-gantt-context-init hours-per-day work-free-days)))
+    ;; Set options
+    (setf (org-gantt-context-options ctx) params)
+    ;; Parse headlines into info-list
+    (setf (org-gantt-context-info-list ctx)
+          (org-gantt-parse-crawl-headlines parsed-data ctx))
+    ctx))
+```
+
+### File Structure:
+
+```elisp
+;;; org-gantt-core.el --- Main entry points for org-gantt -*- lexical-binding: t -*-
+
+;; Copyright (C) 2025 [Author]
+
+;;; Commentary:
+;;
+;; Main entry points for org-gantt chart generation.
+;; This module orchestrates the other modules to produce gantt charts.
+;;
+;; The main entry point is `org-dblock-write:org-gantt-chart' which is
+;; called by org-mode when updating a dynamic block.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'org-element)
+(require 'ob-latex)
+(require 'org-gantt-config)
+(require 'org-gantt-context)
+(require 'org-gantt-util)
+(require 'org-gantt-time)
+(require 'org-gantt-parse)
+(require 'org-gantt-propagate)
+(require 'org-gantt-render)
+
+;;; Parameter Handling
+
+(defun org-gantt-core--parse-parameters (params)
+  "Parse and validate dynamic block PARAMS."
+  ...)
+
+;;; Target Resolution
+
+(defun org-gantt-core--find-target (params buffer)
+  "Find the org element to process."
+  ...)
+
+;;; Context Building
+
+(defun org-gantt-core--build-context (params parsed-data)
+  "Create and initialize context."
+  ...)
+
+(provide 'org-gantt-core)
+;;; org-gantt-core.el ends here
+```
+#+end_src
+
+* Prompt for Claude Code (Session 2 of 2)
+
+#+begin_src markdown
+## Task: Create org-gantt-core.el (Part 2 - Main Entry Points)
+
+Complete `org-gantt-core.el` with the main dynamic block function.
+
+### Add Date Range Determination:
+
+```elisp
+(defun org-gantt-core--determine-date-range (ctx params)
+  "Determine start and end dates for the chart.
+Uses explicit dates from PARAMS if provided, otherwise calculates from CTX."
+  (let* ((start-date-str (plist-get params :start-date))
+         (end-date-str (plist-get params :end-date))
+         (start-date 
+          (when start-date-str
+            (apply 'encode-time (org-parse-time-string start-date-str))))
+         (end-date
+          (when end-date-str
+            (apply 'encode-time (org-parse-time-string end-date-str)))))
+    ;; Calculate from info-list if not provided
+    (unless start-date
+      (setq start-date
+            (org-gantt-parse-extreme-date
+             (org-gantt-context-info-list ctx)
+             (lambda (info) (gethash org-gantt-start-prop info))
+             #'org-gantt-util-time-less-p)))
+    (unless end-date
+      (setq end-date
+            (org-gantt-parse-extreme-date
+             (org-gantt-context-info-list ctx)
+             (lambda (info) (gethash org-gantt-end-prop info))
+             #'org-gantt-util-time-larger-p)))
+    (cons start-date end-date)))
+```
+
+### Add Main Dynamic Block Function:
+
+```elisp
+(defun org-dblock-write:org-gantt-chart (params)
+  "Create or update an org-gantt chart dynamic block.
+PARAMS is a property list of options for the chart.
+
+This is the main entry point called by org-mode when updating
+a #+BEGIN: org-gantt-chart block."
+  (let* (;; Parse parameters
+         (normalized-params (org-gantt-core--parse-parameters params))
+         (id (plist-get normalized-params :id))
+         ;; Handle file references
+         (view-file (when (and (stringp id)
+                               (string-match "^file:\\(.*\\)" id))
+                      (let ((file (match-string 1 id)))
+                        (unless (file-exists-p file)
+                          (error "No such file: \"%s\"" file))
+                        file)))
+         (target-buffer (if view-file
+                           (find-file-noselect view-file)
+                         (current-buffer))))
+    
+    (with-current-buffer target-buffer
+      ;; Update clocksum
+      (org-clock-sum)
+      
+      ;; Find target element
+      (let* ((parsed-data (org-gantt-core--find-target normalized-params 
+                                                       target-buffer))
+             ;; Build context
+             (ctx (org-gantt-core--build-context normalized-params parsed-data)))
+        
+        ;; Run propagation
+        (org-gantt-propagate-all ctx)
+        
+        ;; Determine date range
+        (let* ((date-range (org-gantt-core--determine-date-range ctx normalized-params))
+               (start-date (car date-range))
+               (end-date (cdr date-range)))
+          
+          ;; Generate output
+          (let ((latex-body (org-gantt-render-chart ctx start-date end-date)))
+            
+            ;; Insert or export
+            (if (plist-get normalized-params :file)
+                ;; Export to file via org-babel
+                (progn
+                  (org-babel-execute:latex
+                   latex-body
+                   (org-babel-merge-params
+                    (org-gantt-util-plist-to-alist
+                     (append normalized-params
+                             (list :fit t
+                                   :headers "\\usepackage{pgfgantt}\n")))))
+                  (insert (org-babel-result-to-file 
+                          (plist-get normalized-params :file)))
+                  (org-redisplay-inline-images))
+              ;; Insert LaTeX directly
+              (insert latex-body))))))))
+```
+
+### Add Interactive Insertion Command:
+
+```elisp
+(defun org-insert-dblock:org-gantt-chart (filename)
+  "Insert an org-gantt dynamic block at point.
+FILENAME is the output image filename."
+  (interactive "FImage output filename: ")
+  (org-create-dblock
+   (list :name "org-gantt-chart"
+         :file filename
+         :imagemagick t
+         :tikz-options "scale=1.5, every node/.style={scale=1.5}"
+         :weekend-style "{draw=blue!10, line width=1pt}"
+         :workday-style "{draw=blue!5, line width=.75pt}"
+         :show-progress 'if-value
+         :progress-source 'cookie-clocksum
+         :no-date-headlines 'inactive
+         :parameters "y unit title=.7cm, y unit chart=.9cm")))
+```
+
+### Create Backward-Compatible Entry Point:
+
+Update `org-gantt.el` to be a thin wrapper:
+
+```elisp
+;;; org-gantt.el --- Create integrated pgf gantt charts from task headlines -*- lexical-binding: t -*-
+
+;; [Header comments preserved]
+
+;;; Commentary:
+;; [Preserved]
+
+;;; Code:
+
+;; Load all modules
+(require 'org-gantt-config)
+(require 'org-gantt-context)
+(require 'org-gantt-util)
+(require 'org-gantt-time)
+(require 'org-gantt-parse)
+(require 'org-gantt-propagate)
+(require 'org-gantt-render)
+(require 'org-gantt-core)
+
+;; Re-export main entry points for backward compatibility
+;; (The actual implementations are in org-gantt-core.el)
+
+(provide 'org-gantt)
+;;; org-gantt.el ends here
+```
+#+end_src
+
+* Verification Steps
+
+** Step 1: Verify core module exists
+
+#+begin_src bash
+test -f org-gantt-core.el && echo "File exists" || echo "MISSING"
+#+end_src
+
+** Step 2: Count functions
+
+#+begin_src bash
+grep -c "^(defun org-gantt-core" org-gantt-core.el
+#+end_src
+
+Expected: 4+ internal functions
+
+** Step 3: Verify entry points
+
+#+begin_src bash
+grep "org-dblock-write:org-gantt-chart" org-gantt-core.el
+grep "org-insert-dblock:org-gantt-chart" org-gantt-core.el
+#+end_src
+
+Expected: Both found
+
+** Step 4: Verify no global state mutations
+
+#+begin_src bash
+grep -E "setq \*org-gantt|setq org-gantt-options|setq org-gant-hours" org-gantt-core.el
+#+end_src
+
+Expected: No matches (all state is in context)
+
+** Step 5: Byte-compile all modules
+
+#+begin_src bash
+emacs -batch -L . -f batch-byte-compile \
+      org-gantt-config.el \
+      org-gantt-context.el \
+      org-gantt-util.el \
+      org-gantt-time.el \
+      org-gantt-parse.el \
+      org-gantt-propagate.el \
+      org-gantt-render.el \
+      org-gantt-core.el \
+      org-gantt.el
+#+end_src
+
+Expected: All compile without errors
+
+** Step 6: Run all tests
+
+#+begin_src bash
+make test
+#+end_src
+
+** Step 7: Regression test
+
+#+begin_src bash
+make regression
+#+end_src
+
+* Test File: test/org-gantt-core-test.el
+
+#+begin_src emacs-lisp
+;;; org-gantt-core-test.el --- Tests for org-gantt-core -*- lexical-binding: t -*-
+
+;;; Code:
+
+(require 'ert)
+(require 'org-gantt-core)
+
+;;; Parameter Parsing Tests
+
+(ert-deftest org-gantt-core-test-parse-params-defaults ()
+  "Test that missing params get defaults."
+  (let ((result (org-gantt-core--parse-parameters '())))
+    (should (= 8 (plist-get result :hours-per-day)))
+    (should (equal '(0 6) (plist-get result :work-free-days)))
+    (should (equal '("milestone") (plist-get result :milestone-tags)))))
+
+(ert-deftest org-gantt-core-test-parse-params-override ()
+  "Test that explicit params override defaults."
+  (let ((result (org-gantt-core--parse-parameters 
+                 '(:hours-per-day 6 :work-free-days (0)))))
+    (should (= 6 (plist-get result :hours-per-day)))
+    (should (equal '(0) (plist-get result :work-free-days)))))
+
+;;; Target Finding Tests
+
+(ert-deftest org-gantt-core-test-find-target-global ()
+  "Test finding target with global ID."
+  (with-temp-buffer
+    (insert "* Task 1\n* Task 2\n")
+    (org-mode)
+    (let ((result (org-gantt-core--find-target '(:id global) (current-buffer))))
+      (should result)
+      ;; Should return the whole parsed buffer
+      (should (org-element-map result 'headline #'identity)))))
+
+(ert-deftest org-gantt-core-test-find-target-by-id ()
+  "Test finding target by specific ID."
+  (with-temp-buffer
+    (insert "* Other\n* Target\n:PROPERTIES:\n:ID: my-target\n:END:\n** Child\n")
+    (org-mode)
+    (let ((result (org-gantt-core--find-target '(:id "my-target") (current-buffer))))
+      (should result)
+      ;; Should find the specific headline
+      (should (equal "Target" (org-element-property :raw-value result))))))
+
+(ert-deftest org-gantt-core-test-find-target-missing ()
+  "Test error when ID not found."
+  (with-temp-buffer
+    (insert "* Task\n")
+    (org-mode)
+    (should-error 
+     (org-gantt-core--find-target '(:id "nonexistent") (current-buffer)))))
+
+;;; Context Building Tests
+
+(ert-deftest org-gantt-core-test-build-context ()
+  "Test context building."
+  (with-temp-buffer
+    (insert "* Task 1\nSCHEDULED: <2025-01-06 Mon>\n* Task 2\n")
+    (org-mode)
+    (let* ((params (org-gantt-core--parse-parameters '()))
+           (parsed (org-element-parse-buffer))
+           (ctx (org-gantt-core--build-context params parsed)))
+      (should (org-gantt-context-p ctx))
+      (should (= 8 (org-gantt-context-hours-per-day ctx)))
+      (should (= 2 (length (org-gantt-context-info-list ctx)))))))
+
+;;; Date Range Tests
+
+(ert-deftest org-gantt-core-test-date-range-explicit ()
+  "Test explicit date range."
+  (let* ((ctx (org-gantt-context-init))
+         (params '(:start-date "2025-01-01" :end-date "2025-01-31"))
+         (range (org-gantt-core--determine-date-range ctx params)))
+    (should (car range))
+    (should (cdr range))
+    (let ((start-decoded (decode-time (car range)))
+          (end-decoded (decode-time (cdr range))))
+      (should (= 1 (nth 3 start-decoded)))
+      (should (= 31 (nth 3 end-decoded))))))
+
+(ert-deftest org-gantt-core-test-date-range-from-data ()
+  "Test date range calculated from data."
+  (with-temp-buffer
+    (insert (concat "* Task 1\nSCHEDULED: <2025-01-06 Mon>\n"
+                   "* Task 2\nDEADLINE: <2025-01-20 Mon>\n"))
+    (org-mode)
+    (let* ((params (org-gantt-core--parse-parameters '()))
+           (parsed (org-element-parse-buffer))
+           (ctx (org-gantt-core--build-context params parsed)))
+      (org-gantt-propagate-all ctx)
+      (let ((range (org-gantt-core--determine-date-range ctx params)))
+        (should (car range))
+        (should (cdr range))))))
+
+;;; Integration Tests
+
+(ert-deftest org-gantt-core-test-full-generation ()
+  "Test complete chart generation."
+  (with-temp-buffer
+    (insert (concat "* Project\n"
+                   "** Task 1\n"
+                   "SCHEDULED: <2025-01-06 Mon> DEADLINE: <2025-01-08 Wed>\n"
+                   "** Task 2\n"  
+                   "SCHEDULED: <2025-01-09 Thu> DEADLINE: <2025-01-10 Fri>\n"))
+    (org-mode)
+    (goto-char (point-max))
+    (insert "\n#+BEGIN: org-gantt-chart\n#+END:\n")
+    (search-backward "#+BEGIN:")
+    (org-update-dblock)
+    ;; Check that content was generated
+    (let ((content (buffer-substring-no-properties (point-min) (point-max))))
+      (should (string-match "\\\\begin{ganttchart}" content))
+      (should (string-match "Task 1" content))
+      (should (string-match "Task 2" content))
+      (should (string-match "\\\\end{ganttchart}" content)))))
+
+;;; org-gantt-core-test.el ends here
+#+end_src
+
+* Success Criteria
+
+- [ ] =org-gantt-core.el= exists with main entry points
+- [ ] =org-dblock-write:org-gantt-chart= uses context architecture
+- [ ] No global state mutations in core module
+- [ ] =org-gantt.el= is thin wrapper requiring all modules
+- [ ] All modules byte-compile without warnings
+- [ ] All tests pass
+- [ ] Regression test passes
+
+* Next Phase
+
+Once all criteria pass, proceed to [[file:10-phase-integration.org][Phase 9: Integration & Cleanup]].

@@ -1,0 +1,255 @@
+#+TITLE: Phase 1: Extract Configuration
+#+PROPERTY: PHASE 1
+#+PROPERTY: RISK Low
+#+PROPERTY: SESSIONS 1
+
+* Objective
+
+Extract all =defcustom= and =defconst= declarations from org-gantt.el into a
+separate =org-gantt-config.el= module. This is the safest first step as it
+involves no logic changes.
+
+* Prompt for Claude Code
+
+#+begin_src markdown
+## Task: Extract Configuration from org-gantt.el
+
+Read the file `org-gantt.el` and create a new file `org-gantt-config.el` 
+containing all configuration.
+
+### What to Extract:
+
+1. **defgroup** - The `org-gantt` customization group (around line 37)
+
+2. **All defcustom declarations** (lines 39-187):
+   - `org-gantt-default-hours-per-day`
+   - `org-gantt-default-work-free-days`
+   - `org-gantt-default-weekend-style`
+   - `org-gantt-default-workday-style`
+   - `org-gantt-default-title-calendar`
+   - `org-gantt-default-compressed-title-calendar`
+   - `org-gantt-default-show-progress`
+   - `org-gantt-default-progress-source`
+   - `org-gantt-default-incomplete-date-headlines`
+   - `org-gantt-default-no-date-headlines`
+   - `org-gantt-default-inactive-bar-style`
+   - `org-gantt-default-inactive-group-style`
+   - `org-gantt-default-tags-bar-style`
+   - `org-gantt-default-tags-group-style`
+   - `org-gantt-default-tag-style-effect`
+   - `org-gantt-default-use-tags`
+   - `org-gantt-default-ignore-tags`
+   - `org-gantt-default-milestone-tags`
+   - `org-gantt-default-linked-to-property-keys`
+   - `org-gantt-default-maxlevel`
+   - `org-gantt-output-debug-dates`
+   - `org-gantt-default-hgrid`
+
+3. **All defconst declarations** (lines 193-226):
+   - `org-gantt-start-prop`
+   - `org-gantt-end-prop`
+   - `org-gantt-effort-prop`
+   - `org-gantt-clocksum-prop`
+   - `org-gantt-progress-prop`
+   - `org-gantt-stats-cookie-prop`
+   - `org-gantt-tags-prop`
+   - `org-gantt-parent-tags-prop`
+   - `org-gantt-id-prop`
+   - `org-gantt-blocker-prop`
+   - `org-gantt-trigger-prop`
+   - `org-gantt-linked-to-prop`
+
+### What NOT to Extract (leave in org-gantt.el for now):
+
+The defvar declarations for global state (lines 229-242):
+- `org-gant-hours-per-day-gv` (note: has typo, will be eliminated later)
+- `org-gantt-options`
+- `*org-gantt-changed-in-propagation*`
+- `*org-gantt-id-counter*`
+- `*org-gantt-link-hash*`
+
+These will be eliminated in a later phase when we create the context struct.
+
+### File Structure for org-gantt-config.el:
+
+```elisp
+;;; org-gantt-config.el --- Configuration for org-gantt -*- lexical-binding: t -*-
+
+;; Copyright (C) 2025 [Original Author]
+;; 
+;; Author: [Original Author]
+;; Maintainer: [Maintainer]
+;; Version: 2.0.0
+;; Package-Requires: ((emacs "27.1"))
+;; Keywords: org, gantt, project
+;; URL: [URL]
+
+;;; Commentary:
+;;
+;; This file contains all user-facing configuration options and internal
+;; constants for org-gantt. It should be loaded before any other org-gantt
+;; modules.
+
+;;; Code:
+
+(defgroup org-gantt nil
+  "Customization of org-gantt."
+  :group 'org)
+
+;;; User Configuration
+
+[All defcustom declarations here]
+
+;;; Internal Constants
+
+[All defconst declarations here]
+
+(provide 'org-gantt-config)
+;;; org-gantt-config.el ends here
+```
+
+### After creating org-gantt-config.el:
+
+Modify the original `org-gantt.el` to:
+1. Add `(require 'org-gantt-config)` after the existing requires
+2. Remove all the defcustom and defconst declarations that were moved
+3. Keep the defvar declarations (they will be handled later)
+4. Keep all functions intact
+
+### Important:
+- Preserve ALL docstrings exactly as they are
+- Preserve ALL :type and :group specifications
+- Preserve ALL default values exactly
+- Use `lexical-binding: t` in the file header
+- Ensure the file compiles without warnings
+#+end_src
+
+* Verification Steps
+
+** Step 1: Verify file was created
+
+#+begin_src bash
+test -f org-gantt-config.el && echo "File exists" || echo "MISSING"
+#+end_src
+
+** Step 2: Verify defcustom count
+
+#+begin_src bash
+grep -c "^(defcustom" org-gantt-config.el
+#+end_src
+
+Expected: 22
+
+** Step 3: Verify defconst count
+
+#+begin_src bash
+grep -c "^(defconst" org-gantt-config.el
+#+end_src
+
+Expected: 12
+
+** Step 4: Verify provide statement
+
+#+begin_src bash
+grep "(provide 'org-gantt-config)" org-gantt-config.el
+#+end_src
+
+Expected: Match found
+
+** Step 5: Verify org-gantt.el requires the new module
+
+#+begin_src bash
+grep "(require 'org-gantt-config)" org-gantt.el
+#+end_src
+
+Expected: Match found
+
+** Step 6: Byte-compile both files
+
+#+begin_src bash
+emacs -batch -L . -f batch-byte-compile org-gantt-config.el
+emacs -batch -L . -f batch-byte-compile org-gantt.el
+#+end_src
+
+Expected: No errors, both .elc files created
+
+** Step 7: Run regression test
+
+#+begin_src bash
+make regression
+#+end_src
+
+Expected: "Regression test PASSED"
+
+* Test File: test/org-gantt-config-test.el
+
+#+begin_src emacs-lisp
+;;; org-gantt-config-test.el --- Tests for org-gantt-config -*- lexical-binding: t -*-
+
+;;; Code:
+
+(require 'ert)
+(require 'org-gantt-config)
+
+(ert-deftest org-gantt-config-test-hours-per-day-default ()
+  "Test default hours per day value."
+  (should (= 8 org-gantt-default-hours-per-day)))
+
+(ert-deftest org-gantt-config-test-work-free-days-default ()
+  "Test default work-free days (weekend)."
+  (should (equal '(0 6) org-gantt-default-work-free-days)))
+
+(ert-deftest org-gantt-config-test-property-keys-exist ()
+  "Test that all property key constants are defined."
+  (should (eq :startdate org-gantt-start-prop))
+  (should (eq :enddate org-gantt-end-prop))
+  (should (eq :effort org-gantt-effort-prop))
+  (should (eq :clocksum org-gantt-clocksum-prop))
+  (should (eq :progress org-gantt-progress-prop))
+  (should (eq :stats-cookie org-gantt-stats-cookie-prop))
+  (should (eq :tags org-gantt-tags-prop))
+  (should (eq :parent-tags org-gantt-parent-tags-prop))
+  (should (eq :id org-gantt-id-prop))
+  (should (eq :blocker org-gantt-blocker-prop))
+  (should (eq :trigger org-gantt-trigger-prop))
+  (should (eq :linked-to org-gantt-linked-to-prop)))
+
+(ert-deftest org-gantt-config-test-show-progress-options ()
+  "Test that show-progress accepts valid symbols."
+  (should (memq nil '(nil if-exists always)))
+  (should (memq 'if-exists '(nil if-exists always)))
+  (should (memq 'always '(nil if-exists always))))
+
+(ert-deftest org-gantt-config-test-progress-source-options ()
+  "Test that progress-source has valid options."
+  (should (memq 'clocksum '(clocksum cookie clocksum-cookie cookie-clocksum)))
+  (should (memq 'cookie-clocksum '(clocksum cookie clocksum-cookie cookie-clocksum))))
+
+(ert-deftest org-gantt-config-test-milestone-tags-default ()
+  "Test default milestone tags."
+  (should (equal '("milestone") org-gantt-default-milestone-tags)))
+
+;;; org-gantt-config-test.el ends here
+#+end_src
+
+* Success Criteria
+
+- [ ] =org-gantt-config.el= exists with 22 defcustom and 12 defconst
+- [ ] =org-gantt.el= has =(require 'org-gantt-config)= added
+- [ ] =org-gantt.el= no longer contains the moved declarations
+- [ ] Both files byte-compile without warnings
+- [ ] All config tests pass
+- [ ] Regression test passes (identical output)
+
+* Rollback
+
+If verification fails:
+
+#+begin_src bash
+git checkout org-gantt.el
+rm -f org-gantt-config.el org-gantt-config.elc
+#+end_src
+
+* Next Phase
+
+Once all criteria pass, proceed to [[file:03-phase-context.org][Phase 2: Create Context Struct]].

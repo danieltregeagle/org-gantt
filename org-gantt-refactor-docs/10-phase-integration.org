@@ -1,0 +1,519 @@
+#+TITLE: Phase 9: Integration & Cleanup
+#+PROPERTY: PHASE 9
+#+PROPERTY: RISK Medium
+#+PROPERTY: SESSIONS 2
+
+* Objective
+
+Final integration testing, cleanup, and documentation. This phase ensures
+the refactored codebase is complete, tested, and ready for release.
+
+* Tasks Overview
+
+1. Remove all deprecated compatibility shims
+2. Clean up any remaining global state
+3. Add comprehensive documentation
+4. Run full test suite
+5. Performance benchmarking
+6. Create migration guide
+
+* Prompt for Claude Code (Session 1 of 2)
+
+#+begin_src markdown
+## Task: Cleanup and Documentation (Part 1)
+
+### 1. Remove Deprecated Compatibility Shims
+
+In `org-gantt.el`, remove any compatibility functions that were added during
+the transition. The file should now only contain:
+
+```elisp
+;;; org-gantt.el --- Create integrated pgf gantt charts from task headlines -*- lexical-binding: t -*-
+
+;; Copyright (C) 2025 [Author]
+;; 
+;; Author: [Author]
+;; Maintainer: [Maintainer]
+;; Version: 2.0.0
+;; Package-Requires: ((emacs "27.1") (org "9.0"))
+;; Keywords: org, gantt, project, planning
+;; URL: [URL]
+
+;;; Commentary:
+;;
+;; org-gantt creates Gantt charts from Org mode headlines using pgfgantt.
+;;
+;; Usage:
+;;   1. Create headlines with SCHEDULED/DEADLINE timestamps and EFFORT
+;;   2. Insert a dynamic block: #+BEGIN: org-gantt-chart :file chart.pdf
+;;   3. Run `org-update-dblock' (C-c C-x C-u) to generate the chart
+;;
+;; See the manual for complete documentation.
+
+;;; Code:
+
+(require 'org-gantt-config)
+(require 'org-gantt-context)
+(require 'org-gantt-util)
+(require 'org-gantt-time)
+(require 'org-gantt-parse)
+(require 'org-gantt-propagate)
+(require 'org-gantt-render)
+(require 'org-gantt-core)
+
+(provide 'org-gantt)
+;;; org-gantt.el ends here
+```
+
+### 2. Verify No Global State Remains
+
+Search all module files and ensure there are no remaining:
+- `defvar` declarations (except in org-gantt-config.el for debug flag)
+- Direct global state mutations
+- References to the old global variables
+
+```bash
+# Should return nothing
+grep -r "defvar" org-gantt-*.el | grep -v "org-gantt-config.el" | grep -v "org-gantt-util-debug"
+grep -r "setq \*org-gantt" org-gantt-*.el
+grep -r "org-gant-hours-per-day-gv" org-gantt-*.el
+```
+
+### 3. Add Module Headers
+
+Ensure each module has complete headers:
+
+```elisp
+;;; org-gantt-MODULE.el --- DESCRIPTION -*- lexical-binding: t -*-
+
+;; Copyright (C) 2025 [Author]
+;;
+;; This file is part of org-gantt.
+
+;;; Commentary:
+;;
+;; [Detailed description of module purpose]
+;;
+;; Public API:
+;; - `org-gantt-MODULE-function1' - Description
+;; - `org-gantt-MODULE-function2' - Description
+;;
+;; Internal functions (prefixed with --):
+;; - `org-gantt-MODULE--internal1' - Description
+
+;;; Code:
+```
+
+### 4. Add Function Documentation
+
+Ensure every public function has:
+- A complete docstring
+- Parameter descriptions
+- Return value description
+- Example usage where appropriate
+
+Example:
+```elisp
+(defun org-gantt-time-add-worktime (time change-time hours-per-day work-free-days)
+  "Add CHANGE-TIME work time to TIME, respecting work schedule.
+
+TIME is the starting Emacs time value.
+CHANGE-TIME is the duration to add as an Emacs time value.
+HOURS-PER-DAY is the number of working hours per day (typically 8).
+WORK-FREE-DAYS is a list of day-of-week numbers (0=Sunday, 6=Saturday).
+
+Returns a new Emacs time value representing the end time.
+
+The calculation accounts for:
+- Working hours per day (time beyond hours-per-day rolls to next day)
+- Non-working days (weekends are skipped)
+
+Example:
+  ;; Add 12 hours starting Monday 9am with 8-hour days
+  (org-gantt-time-add-worktime 
+   (encode-time 0 0 9 6 1 2025)   ; Monday 9am
+   (seconds-to-time (* 12 3600))  ; 12 hours
+   8                               ; 8-hour days
+   \\='(0 6))                        ; Sat/Sun off
+  ;; => Tuesday 1pm (8h Monday + 4h Tuesday)"
+  ...)
+```
+#+end_src
+
+* Prompt for Claude Code (Session 2 of 2)
+
+#+begin_src markdown
+## Task: Cleanup and Documentation (Part 2)
+
+### 5. Create Test Runner Updates
+
+Update `test/org-gantt-test-runner.el` to run all module tests:
+
+```elisp
+;;; org-gantt-test-runner.el --- Test runner for org-gantt -*- lexical-binding: t -*-
+
+;;; Code:
+
+(require 'ert)
+
+(defvar org-gantt-test-modules
+  '("org-gantt-config-test"
+    "org-gantt-context-test"
+    "org-gantt-util-test"
+    "org-gantt-time-test"
+    "org-gantt-parse-test"
+    "org-gantt-propagate-test"
+    "org-gantt-render-test"
+    "org-gantt-core-test")
+  "List of test module names.")
+
+(defvar org-gantt-test-directory
+  (file-name-directory (or load-file-name buffer-file-name))
+  "Directory containing test files.")
+
+(defun org-gantt-test-load-all ()
+  "Load all org-gantt test files."
+  (dolist (module org-gantt-test-modules)
+    (load (expand-file-name (concat module ".el") org-gantt-test-directory) 
+          nil t)))
+
+(defun org-gantt-run-all-tests ()
+  "Run all org-gantt tests."
+  (interactive)
+  (org-gantt-test-load-all)
+  (ert-run-tests-batch-and-exit))
+
+(defun org-gantt-run-tests-interactively ()
+  "Run all org-gantt tests interactively."
+  (interactive)
+  (org-gantt-test-load-all)
+  (ert t))
+
+(defun org-gantt-test-coverage-report ()
+  "Generate a test coverage summary."
+  (interactive)
+  (org-gantt-test-load-all)
+  (let ((stats (ert-run-tests-batch)))
+    (message "\n=== org-gantt Test Coverage ===")
+    (message "Total tests: %d" (ert-stats-total stats))
+    (message "Passed: %d" (ert-stats-completed-expected stats))
+    (message "Failed: %d" (ert-stats-completed-unexpected stats))
+    (message "Skipped: %d" (ert-stats-skipped stats))))
+
+(provide 'org-gantt-test-runner)
+;;; org-gantt-test-runner.el ends here
+```
+
+### 6. Create Comprehensive Makefile
+
+```makefile
+# Makefile for org-gantt
+
+EMACS ?= emacs
+BATCH = $(EMACS) -batch -Q -L .
+
+# Source files in dependency order
+SRCS = org-gantt-config.el \
+       org-gantt-context.el \
+       org-gantt-util.el \
+       org-gantt-time.el \
+       org-gantt-parse.el \
+       org-gantt-propagate.el \
+       org-gantt-render.el \
+       org-gantt-core.el \
+       org-gantt.el
+
+ELCS = $(SRCS:.el=.elc)
+
+TEST_SRCS = $(wildcard test/*-test.el)
+
+.PHONY: all compile test test-verbose clean distclean \
+        lint checkdoc regression benchmark
+
+all: compile
+
+# Compile all source files
+compile: $(ELCS)
+
+%.elc: %.el
+	$(BATCH) -f batch-byte-compile $<
+
+# Run all tests
+test: compile
+	$(BATCH) -L test \
+	         -l test/org-gantt-test-runner.el \
+	         -f org-gantt-run-all-tests
+
+# Run tests with verbose output
+test-verbose: compile
+	$(BATCH) -L test \
+	         -l ert \
+	         $(foreach f,$(TEST_SRCS),-l $(f)) \
+	         --eval "(ert-run-tests-batch-and-exit t)"
+
+# Run specific module tests
+test-%: compile
+	$(BATCH) -L test -l ert \
+	         -l test/org-gantt-$*-test.el \
+	         -f ert-run-tests-batch-and-exit
+
+# Run regression test
+regression: compile
+	$(BATCH) -L test \
+	         -l test/org-gantt-test-runner.el \
+	         -f org-gantt-run-regression-test
+
+# Run checkdoc on all files
+checkdoc:
+	@for f in $(SRCS); do \
+	  echo "Checking $$f..."; \
+	  $(BATCH) --eval "(require 'checkdoc)" \
+	           --eval "(checkdoc-file \"$$f\")"; \
+	done
+
+# Run package-lint
+lint:
+	$(BATCH) -l package-lint \
+	         --eval "(package-lint-batch-and-exit)"
+
+# Performance benchmark
+benchmark: compile
+	$(BATCH) -L test \
+	         -l test/org-gantt-benchmark.el \
+	         -f org-gantt-run-benchmarks
+
+# Clean compiled files
+clean:
+	rm -f $(ELCS)
+	rm -f test/*.elc
+
+# Clean everything including generated files
+distclean: clean
+	rm -f test/test-fixtures/expected-output.tex
+	rm -rf .elpa/
+```
+
+### 7. Create Benchmark Test
+
+```elisp
+;;; org-gantt-benchmark.el --- Performance benchmarks -*- lexical-binding: t -*-
+
+;;; Code:
+
+(require 'org-gantt)
+
+(defun org-gantt-benchmark--generate-org (n-headlines)
+  "Generate org content with N-HEADLINES for benchmarking."
+  (with-temp-buffer
+    (insert "* Benchmark Project\n:PROPERTIES:\n:ORDERED: t\n:END:\n")
+    (dotimes (i n-headlines)
+      (insert (format "** Task %d\nSCHEDULED: <2025-01-%02d Mon>\n"
+                     i (1+ (mod i 28))))
+      (insert (format ":PROPERTIES:\n:EFFORT: %dd\n:END:\n"
+                     (1+ (mod i 5)))))
+    (buffer-string)))
+
+(defun org-gantt-benchmark--time-generation (n-headlines)
+  "Benchmark generation time for N-HEADLINES."
+  (let ((org-content (org-gantt-benchmark--generate-org n-headlines)))
+    (with-temp-buffer
+      (insert org-content)
+      (insert "\n#+BEGIN: org-gantt-chart\n#+END:\n")
+      (org-mode)
+      (let ((start-time (float-time)))
+        (search-backward "#+BEGIN:")
+        (org-update-dblock)
+        (- (float-time) start-time)))))
+
+(defun org-gantt-run-benchmarks ()
+  "Run performance benchmarks."
+  (interactive)
+  (message "\n=== org-gantt Performance Benchmarks ===\n")
+  (dolist (n '(10 50 100 200 500))
+    (let ((time (org-gantt-benchmark--time-generation n)))
+      (message "%4d headlines: %.3f seconds (%.1f headlines/sec)"
+               n time (/ n time))))
+  (message "\nBenchmark complete."))
+
+(provide 'org-gantt-benchmark)
+;;; org-gantt-benchmark.el ends here
+```
+#+end_src
+
+* Verification Steps
+
+** Step 1: Verify no global state
+
+#+begin_src bash
+# Check for any remaining global state
+grep -r "defvar" org-gantt-*.el | grep -v "config.el" | grep -v "debug"
+grep -r "setq \*" org-gantt-*.el
+#+end_src
+
+Expected: No matches
+
+** Step 2: Verify all modules load
+
+#+begin_src bash
+emacs -batch -L . -l org-gantt.el \
+      --eval "(message \"All modules loaded successfully\")"
+#+end_src
+
+** Step 3: Run complete test suite
+
+#+begin_src bash
+make test
+#+end_src
+
+Expected: All tests pass
+
+** Step 4: Run checkdoc
+
+#+begin_src bash
+make checkdoc
+#+end_src
+
+Expected: No warnings
+
+** Step 5: Run regression test
+
+#+begin_src bash
+make regression
+#+end_src
+
+Expected: PASSED
+
+** Step 6: Run benchmark
+
+#+begin_src bash
+make benchmark
+#+end_src
+
+Expected: Performance metrics printed
+
+** Step 7: Byte-compile with warnings as errors
+
+#+begin_src bash
+emacs -batch -L . \
+      --eval "(setq byte-compile-error-on-warn t)" \
+      -f batch-byte-compile org-gantt-*.el
+#+end_src
+
+Expected: No warnings or errors
+
+* Final Checklist
+
+** Code Quality
+- [ ] All modules byte-compile without warnings
+- [ ] All modules pass checkdoc
+- [ ] No function exceeds 60 lines
+- [ ] No nesting exceeds 4 levels
+- [ ] All public functions have docstrings
+- [ ] Consistent naming (org-gantt-MODULE- prefix)
+
+** Testing
+- [ ] 50+ unit tests total
+- [ ] All unit tests pass
+- [ ] Regression test passes
+- [ ] Performance acceptable (100 headlines < 1 second)
+
+** Architecture
+- [ ] No global mutable state
+- [ ] Context struct used throughout
+- [ ] Clear module boundaries
+- [ ] No circular dependencies
+
+** Documentation
+- [ ] Each module has commentary section
+- [ ] Public API documented
+- [ ] Usage examples in docstrings
+- [ ] README/manual updated
+
+* Migration Guide for Users
+
+Create `UPGRADING.md`:
+
+#+begin_src markdown
+# Upgrading to org-gantt 2.0
+
+## What's New
+
+org-gantt 2.0 is a complete refactoring of the codebase into modules.
+The user-facing API is unchanged, but the internal architecture is 
+significantly improved.
+
+## Breaking Changes
+
+None for typical users. The dynamic block syntax is identical.
+
+## For Developers
+
+If you've written code that depends on org-gantt internals:
+
+### Removed Global Variables
+
+The following global variables no longer exist:
+- `org-gant-hours-per-day-gv` → Use context
+- `org-gantt-options` → Use context  
+- `*org-gantt-changed-in-propagation*` → Use context
+- `*org-gantt-id-counter*` → Use context
+- `*org-gantt-link-hash*` → Use context
+
+### New Module Structure
+
+- `org-gantt-config.el` - Configuration
+- `org-gantt-context.el` - Context struct
+- `org-gantt-util.el` - Utilities
+- `org-gantt-time.el` - Time calculations
+- `org-gantt-parse.el` - Parsing
+- `org-gantt-propagate.el` - Propagation
+- `org-gantt-render.el` - Rendering
+- `org-gantt-core.el` - Entry points
+
+### Using the New API
+
+```elisp
+;; Create a context
+(let ((ctx (org-gantt-context-init 8 '(0 6))))
+  ;; Set options
+  (setf (org-gantt-context-options ctx) '(:show-progress always))
+  ;; Parse data
+  (setf (org-gantt-context-info-list ctx)
+        (org-gantt-parse-crawl-headlines parsed-data ctx))
+  ;; Propagate
+  (org-gantt-propagate-all ctx)
+  ;; Render
+  (org-gantt-render-chart ctx start-date end-date))
+```
+#+end_src
+
+* Success Criteria
+
+- [ ] All deprecated code removed
+- [ ] No global mutable state
+- [ ] All tests pass (50+)
+- [ ] Regression test passes
+- [ ] Checkdoc passes
+- [ ] Byte-compilation clean
+- [ ] Performance acceptable
+- [ ] Documentation complete
+- [ ] Migration guide created
+
+* Completion
+
+Congratulations! The refactoring is complete when all criteria pass.
+
+** Final Commit
+
+#+begin_src bash
+git add -A
+git commit -m "Complete org-gantt 2.0 refactoring
+
+- Modular architecture with 8 modules
+- Context-based state management (no globals)
+- 50+ unit tests
+- Performance optimized
+- Full documentation"
+
+git tag v2.0.0
+#+end_src

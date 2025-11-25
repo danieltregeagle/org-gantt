@@ -1,0 +1,134 @@
+#+TITLE: org-gantt.el Refactoring: Master Guide for Claude Code
+#+AUTHOR: Orchestration Document
+#+OPTIONS: toc:t num:t
+
+* Overview
+
+This guide orchestrates the complete refactoring of org-gantt.el into a modular
+architecture using Claude Code (Sonnet 4.5). Each phase has:
+
+1. A prompt file to give Claude Code
+2. Verification tests to run before proceeding
+3. Success criteria that must pass
+
+* Prerequisites
+
+Before starting, ensure you have:
+
+1. The original =org-gantt.el= file (working version)
+2. A test org file with known-good output (see =test-fixtures/sample-gantt.org=)
+3. Git repository initialized with clean working tree
+4. Emacs available for running ERT tests
+
+* Directory Structure
+
+After refactoring, your directory should look like:
+
+#+begin_example
+org-gantt/
+├── org-gantt.el              # Backward-compatible entry point (requires all modules)
+├── org-gantt-config.el       # Configuration (defcustom, defconst)
+├── org-gantt-context.el      # Context struct definition
+├── org-gantt-util.el         # Pure utility functions
+├── org-gantt-time.el         # Time/date calculations
+├── org-gantt-parse.el        # Org headline parsing
+├── org-gantt-propagate.el    # Date/effort propagation
+├── org-gantt-render.el       # PGF/TikZ output generation
+├── org-gantt-core.el         # Main entry points
+└── test/
+    ├── org-gantt-test-runner.el
+    ├── org-gantt-util-test.el
+    ├── org-gantt-time-test.el
+    ├── org-gantt-parse-test.el
+    ├── org-gantt-propagate-test.el
+    ├── org-gantt-render-test.el
+    └── test-fixtures/
+        └── sample-gantt.org
+#+end_example
+
+* Phase Execution Order
+
+| Phase | File | Risk | Sessions | Depends On |
+|-------+------+------+----------+------------|
+|     0 | Setup test infrastructure | None |        1 | - |
+|     1 | Extract config | Low |        1 | Phase 0 |
+|     2 | Create context struct | Low |        1 | Phase 1 |
+|     3 | Extract utilities | Low |        1 | Phase 1 |
+|     4 | Extract time module | Medium |        2 | Phase 1,2,3 |
+|     5 | Extract parse module | Medium |        2 | Phase 1-4 |
+|     6 | Extract propagation | High |        3 | Phase 1-5 |
+|     7 | Extract render module | Medium |        2 | Phase 1-6 |
+|     8 | Refactor core | High |        2 | Phase 1-7 |
+|     9 | Integration & cleanup | Medium |        2 | Phase 1-8 |
+
+* Execution Protocol
+
+For each phase:
+
+1. *Commit current state*: =git add -A && git commit -m "Before phase N"=
+2. *Run Claude Code* with the phase prompt file
+3. *Review output* before accepting changes
+4. *Run verification tests*: =make test-phase-N= or manual ERT
+5. *Run regression test*: Verify sample-gantt.org still produces correct output
+6. *Commit if passing*: =git add -A && git commit -m "Complete phase N"=
+7. *If failing*: =git checkout .= and retry or debug
+
+* Quick Reference: Running Tests
+
+#+begin_src bash
+# Run all tests for a specific module
+emacs -batch -L . -L test -l ert \
+      -l test/org-gantt-MODULE-test.el \
+      -f ert-run-tests-batch-and-exit
+
+# Run full regression test
+emacs -batch -L . -l test/org-gantt-test-runner.el \
+      -f org-gantt-run-all-tests
+
+# Run single test
+emacs -batch -L . -L test -l ert \
+      -l test/org-gantt-MODULE-test.el \
+      --eval "(ert-run-tests-batch-and-exit 'TEST-NAME)"
+#+end_src
+
+* Rollback Procedures
+
+If a phase fails and you need to rollback:
+
+#+begin_src bash
+# Discard all uncommitted changes
+git checkout .
+git clean -fd
+
+# Or reset to a specific phase
+git log --oneline  # Find the commit
+git reset --hard COMMIT_HASH
+#+end_src
+
+* Prompt Files
+
+Each phase has a corresponding prompt file:
+
+- =01-phase-setup.org= - Test infrastructure setup
+- =02-phase-config.org= - Extract configuration
+- =03-phase-context.org= - Create context struct  
+- =04-phase-util.org= - Extract utilities
+- =05-phase-time.org= - Extract time module
+- =06-phase-parse.org= - Extract parse module
+- =07-phase-propagate.org= - Extract propagation (multiple parts)
+- =08-phase-render.org= - Extract render module
+- =09-phase-core.org= - Refactor core
+- =10-phase-integration.org= - Final integration
+
+* Success Metrics
+
+The refactoring is complete when:
+
+- [ ] All ERT tests pass (target: 50+ tests)
+- [ ] =sample-gantt.org= produces identical output to original
+- [ ] No global variables except configuration defaults
+- [ ] All modules < 400 lines
+- [ ] No function > 60 lines
+- [ ] All functions have docstrings
+- [ ] Byte-compilation produces no warnings
+- [ ] =M-x checkdoc= passes on all files
