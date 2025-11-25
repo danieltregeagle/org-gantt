@@ -1163,21 +1163,17 @@ LAST should be non-nil for the last gant-info in the Gant Chart."
            (ignore-this nil)      ;ignore everything sub-this
            (ignore-only-this nil) ;ignore this, but maybe allow sub-this
            )
+      ;; Set default dates if missing
       (cond ((and (not up-start) (not down-end))
-             (when (equal no-date-headlines 'ignore)
-               (setq ignore-this t))
              (setq up-start default-date)
              (setq down-end default-date))
             ((not down-end)
-             (when (equal incomplete-date-headlines 'ignore)
-               (setq ignore-this t))
              (setq down-end up-start))
             ((not up-start)
-             (when (equal incomplete-date-headlines 'ignore)
-               (setq ignore-this t))
              (setq up-start down-end)))
-      (when (and ignore-tags (org-gantt-is-in-tags tags ignore-tags))
-        (setq ignore-this t))
+      ;; Check if this item or any descendants will render anything
+      (setq ignore-this (not (org-gantt-will-render-anything-p gi default-date level)))
+      ;; Check if only this item should be ignored (but maybe children should render)
       (when (and use-tags
                  (not (org-gantt-is-in-tags tags use-tags))
                  (not (org-gantt-is-in-tags parent-tags use-tags)))
