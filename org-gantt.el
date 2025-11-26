@@ -35,6 +35,7 @@
 
 (require 'org-gantt-config)
 (require 'org-gantt-util)
+(require 'org-gantt-time)
 
 ;; Aliases for backward compatibility during refactoring
 (defalias 'org-gantt-chomp 'org-gantt-util-chomp)
@@ -52,6 +53,89 @@
 (defalias 'org-gantt-stats-cookie-to-progress 'org-gantt-util-stats-cookie-to-progress)
 (defalias 'org-gantt-plist-to-alist 'org-gantt-util-plist-to-alist)
 (defalias 'dbgmessage 'org-gantt-util-debug-message)
+
+;; Time function compatibility wrappers (temporary during refactoring)
+(defalias 'org-gantt-timestamp-to-time 'org-gantt-time-from-timestamp)
+
+(defun org-gantt-strings-to-time
+    (seconds-string minutes-string &optional hours-string
+                    days-string weeks-string months-string years-string hours-per-day)
+  "Compatibility wrapper for org-gantt-time-from-strings."
+  (org-gantt-time-from-strings
+   seconds-string minutes-string hours-string
+   days-string weeks-string months-string years-string
+   hours-per-day (plist-get org-gantt-options :work-free-days)))
+
+(defun org-gantt-effort-to-time (effort &optional hours-per-day)
+  "Compatibility wrapper for org-gantt-time-from-effort."
+  (org-gantt-time-from-effort
+   effort
+   hours-per-day
+   (plist-get org-gantt-options :work-free-days)))
+
+(defun org-gantt-is-workday (time)
+  "Compatibility wrapper for org-gantt-time-is-workday."
+  (org-gantt-time-is-workday time (plist-get org-gantt-options :work-free-days)))
+
+(defun org-gantt-change-workdays (time ndays change-function)
+  "Compatibility wrapper for org-gantt-time-change-workdays."
+  (org-gantt-time-change-workdays
+   time ndays change-function
+   (plist-get org-gantt-options :work-free-days)))
+
+(defun org-gantt-day-end (time)
+  "Compatibility wrapper for org-gantt-time-day-end."
+  (org-gantt-time-day-end time (org-gantt-hours-per-day)))
+
+(defalias 'org-gantt-day-start 'org-gantt-time-day-start)
+
+(defun org-gantt-add-worktime (time change-time)
+  "Compatibility wrapper for org-gantt-time-add-worktime."
+  (org-gantt-time-add-worktime
+   time change-time
+   (org-gantt-hours-per-day)
+   (plist-get org-gantt-options :work-free-days)))
+
+(defun org-gantt-change-worktime (time change-time time-changer day-start-getter day-end-getter)
+  "Compatibility wrapper for org-gantt-time-change-worktime."
+  (org-gantt-time-change-worktime
+   time change-time time-changer day-start-getter day-end-getter
+   (org-gantt-hours-per-day)
+   (plist-get org-gantt-options :work-free-days)))
+
+(defun org-gantt-get-next-time (endtime)
+  "Compatibility wrapper for org-gantt-time-next-start."
+  (org-gantt-time-next-start
+   endtime
+   (org-gantt-hours-per-day)
+   (plist-get org-gantt-options :work-free-days)))
+
+(defun org-gantt-get-prev-time (starttime)
+  "Compatibility wrapper for org-gantt-time-prev-end."
+  (org-gantt-time-prev-end
+   starttime
+   (org-gantt-hours-per-day)
+   (plist-get org-gantt-options :work-free-days)))
+
+(defun org-gantt-downcast-endtime (endtime)
+  "Compatibility wrapper for org-gantt-time-downcast-end."
+  (org-gantt-time-downcast-end
+   endtime
+   (org-gantt-hours-per-day)
+   (plist-get org-gantt-options :work-free-days)))
+
+(defun org-gantt-upcast-starttime (starttime)
+  "Compatibility wrapper for org-gantt-time-upcast-start."
+  (org-gantt-time-upcast-start
+   starttime
+   (org-gantt-hours-per-day)
+   (plist-get org-gantt-options :work-free-days)))
+
+(defun org-gantt-get-day-ratio (time)
+  "Compatibility wrapper for org-gantt-time-day-ratio."
+  (org-gantt-time-day-ratio time (org-gantt-hours-per-day)))
+
+(defalias 'org-gantt-get-month-ratio 'org-gantt-time-month-ratio)
 
 (defvar org-gant-hours-per-day-gv nil
   "Global variable for local hours-per-day.")
@@ -76,7 +160,7 @@ Is used to create the manual links between elements at the end.")
 
 (defun org-gantt-hours-per-day-time ()
   "Get hours per day as a time value."
-  (seconds-to-time (* 3600 (org-gantt-hours-per-day))))
+  (org-gantt-time-hours-to-time (org-gantt-hours-per-day)))
 
 (defun org-gantt-chomp (str)
   "Chomp leading and tailing whitespace from STR."
