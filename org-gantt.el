@@ -34,8 +34,10 @@
 (require 'ob-latex) ; for org-babel-execute:latex
 
 (require 'org-gantt-config)
+(require 'org-gantt-context)
 (require 'org-gantt-util)
 (require 'org-gantt-time)
+(require 'org-gantt-parse)
 
 ;; Aliases for backward compatibility during refactoring
 (defalias 'org-gantt-chomp 'org-gantt-util-chomp)
@@ -137,6 +139,71 @@
 
 (defalias 'org-gantt-get-month-ratio 'org-gantt-time-month-ratio)
 
+;; Parse function compatibility wrappers (temporary during refactoring)
+(defun org-gantt-get-planning-time (element timestamp-type)
+  "Compatibility wrapper for org-gantt-parse-planning-time."
+  (org-gantt-parse-planning-time element timestamp-type (org-gantt-hours-per-day)))
+
+(defalias 'org-gantt-get-subheadlines 'org-gantt-parse-subheadlines)
+
+(defalias 'org-gantt-subheadline-extreme 'org-gantt-parse-subheadline-extreme)
+
+(defun org-gantt-get-start-time (element)
+  "Compatibility wrapper for org-gantt-parse-start-time."
+  (org-gantt-parse-start-time element (org-gantt-hours-per-day)))
+
+(defun org-gantt-get-end-time (element)
+  "Compatibility wrapper for org-gantt-parse-end-time."
+  (org-gantt-parse-end-time element (org-gantt-hours-per-day)))
+
+(defun org-gantt-subheadlines-effort (element effort-getter element-org-gantt-effort-prop)
+  "Compatibility wrapper for org-gantt-parse-subheadlines-effort."
+  (org-gantt-parse-subheadlines-effort element effort-getter element-org-gantt-effort-prop))
+
+(defun org-gantt-get-effort (element element-org-gantt-effort-prop &optional use-subheadlines-effort)
+  "Compatibility wrapper for org-gantt-parse-effort."
+  (org-gantt-parse-effort
+   element element-org-gantt-effort-prop
+   (plist-get org-gantt-options :work-free-days)
+   use-subheadlines-effort))
+
+(defalias 'org-gantt-statistics-value 'org-gantt-parse-statistics-value)
+
+(defalias 'org-gantt-get-flattened-properties 'org-gantt-parse-flattened-properties)
+
+(defun org-gantt-create-id ()
+  "Compatibility wrapper using global counter (deprecated).
+This function maintains backward compatibility but uses a global variable.
+New code should use org-gantt-context-next-id instead."
+  (setq *org-gantt-id-counter*
+        (+ 1 *org-gantt-id-counter*))
+  (concat "uniqueid"
+          (number-to-string *org-gantt-id-counter*)))
+
+(defun org-gantt-create-gantt-info (element)
+  "Compatibility wrapper for org-gantt-parse-create-info.
+Creates a temporary context using global org-gantt-options."
+  (let ((ctx (org-gantt-context-init (org-gantt-hours-per-day)
+                                     (plist-get org-gantt-options :work-free-days))))
+    (setf (org-gantt-context-options ctx) org-gantt-options)
+    (setf (org-gantt-context-id-counter ctx) *org-gantt-id-counter*)
+    (let ((result (org-gantt-parse-create-info element ctx)))
+      (setq *org-gantt-id-counter* (org-gantt-context-id-counter ctx))
+      result)))
+
+(defun org-gantt-crawl-headlines (data)
+  "Compatibility wrapper for org-gantt-parse-crawl-headlines.
+Creates a temporary context using global org-gantt-options."
+  (let ((ctx (org-gantt-context-init (org-gantt-hours-per-day)
+                                     (plist-get org-gantt-options :work-free-days))))
+    (setf (org-gantt-context-options ctx) org-gantt-options)
+    (setf (org-gantt-context-id-counter ctx) *org-gantt-id-counter*)
+    (let ((result (org-gantt-parse-crawl-headlines data ctx)))
+      (setq *org-gantt-id-counter* (org-gantt-context-id-counter ctx))
+      result)))
+
+(defalias 'org-gantt-get-extreme-date-il 'org-gantt-parse-extreme-date)
+
 (defvar org-gant-hours-per-day-gv nil
   "Global variable for local hours-per-day.")
 
@@ -199,29 +266,7 @@ If KEY is not found, or TABLE is nil, return DFLT which defaults to nil."
       (and (org-gantt-equal (car il1) (car il2))
            (org-gantt-info-list-equal (cdr il1) (cdr il2)))))
 
-(defun org-gantt-get-planning-time (element timestamp-type)
-  "Get the time belonging to a first-order headline of the given ELEMENT.
-TIMESTAMP-TYPE is either :scheduled or :deadline.
-If it is :deadline, hours-per-day is added to it."
-  (let* ((timestamp
-          (org-element-map
-              element '(planning headline)
-            (lambda (subelement) (org-element-property timestamp-type subelement))
-            nil t 'headline))
-         (time (org-gantt-timestamp-to-time timestamp))
-         (dt (decode-time time))
-         (hours (nth 2 dt))
-         (minutes (nth 1 dt)))
-    (if (and (equal timestamp-type :deadline)
-             (= 0 hours)
-             (= 0 minutes))
-        (time-add time (org-gantt-hours-per-day-time))
-      time)))
-
-(defun org-gantt-get-subheadlines (element)
-  "Get all the headlines of ELEMENT."
-  (org-element-map element 'headline (lambda (subelement) subelement)
-                   nil nil 'headline))
+; Parse functions moved to org-gantt-parse.el - see compatibility wrappers below
 
 (defun org-gantt-time-less-p (t1 t2)
   "Return non-nil, if T1 is before T2.
@@ -238,166 +283,7 @@ Works with nil.  Any time is lager than nil."
        (or (not t2)
            (time-less-p t2 t1))))
 
-(defun org-gantt-subheadline-extreme (element comparator time-getter subheadline-getter)
-  "Return smallest/largest timestamp of the subheadlines of ELEMENT.
-Smallest or largest depends on COMPARATOR.
-TIME-GETTER is the recursive function that needs to be called if
-the subheadlines have no timestamp.
-SUBHEADLINE-GETTER is the function that is used to get subheadlines."
-  (and
-   element
-   (let ((subheadlines (funcall subheadline-getter element)))
-     (funcall
-      time-getter
-      (car
-       (sort
-        subheadlines
-        (lambda (hl1 hl2)
-          (funcall comparator
-                   (funcall time-getter hl1)
-                   (funcall time-getter hl2)))))))))
-
-(defun org-gantt-get-start-time (element)
-  "Get the start time of ELEMENT.
-This is either the :scheduled time, or the first start time of
-ELEMENT's subelements."
-  (or
-   (org-gantt-get-planning-time element ':scheduled)
-   (org-gantt-subheadline-extreme
-    (cdr element)
-    #'org-gantt-time-less-p
-    #'org-gantt-get-start-time
-    #'org-gantt-get-subheadlines)))
-
-(defun org-gantt-get-end-time (element)
-  "Get the end time of ELEMENT.
-This is either the :deadline time, or the last end time of
-ELEMENT's subelements."
-  (or
-   (org-gantt-get-planning-time element ':deadline)
-   (org-gantt-subheadline-extreme
-    (cdr element)
-    #'org-gantt-time-larger-p
-    #'org-gantt-get-end-time
-    #'org-gantt-get-subheadlines)))
-
-(defun org-gantt-subheadlines-effort (element effort-getter element-org-gantt-effort-prop)
-  "Return the sum of the efforts of the subheadlines of ELEMENT.
-EFFORT-GETTER is the recursive function that needs to be called if
-the subheadlines have no effort.
-ELEMENT-ORG-GANTT-EFFORT-PROP The property that stores the effort in the headline element."
-  (and
-   element
-   (let ((subheadlines (org-gantt-get-subheadlines element))
-         (time-sum (seconds-to-time 0)))
-     (dolist (sh subheadlines (if (= 0 (apply '+ time-sum)) nil time-sum))
-       (let ((subtime (funcall effort-getter sh element-org-gantt-effort-prop)))
-         (when subtime
-           (setq time-sum (time-add time-sum subtime))))))))
-
-
-(defun org-gantt-get-effort (element element-org-gantt-effort-prop &optional use-subheadlines-effort)
-  "Get the effort of the current ELEMENT.
-If use-subheadlines-effort is non-nil and element has no effort,
-use sum of the efforts of the subelements.
-ELEMENT-ORG-GANTT-EFFORT-PROP is the property that stores the effort
-in the headline element.
-If USE-SUBHEADLINES-EFFORT is non-nil and element does not have a direct effort,
-the combined effort of subheadlines is used."
-  (let ((effort-time (org-gantt-effort-to-time (org-element-property element-org-gantt-effort-prop element))))
-    (or effort-time
-        (and use-subheadlines-effort
-             (org-gantt-subheadlines-effort (cdr element) #'org-gantt-get-effort element-org-gantt-effort-prop)))))
-
-(defun org-gantt-statistics-value (title)
-  "Return the statistics value, if title contains it, else nil"
-  (org-element-map (org-element-contents title) 'statistics-cookie
-    (lambda (element) (org-element-property :value element))
-    nil t t))
-
-(defun org-gantt-get-flattened-properties (element property-key-list)
-  "Return the properties in ELEMENT flattened into one list.
-Return properties as defined by any key in PROPERTY-KEY-LIST."
-                                        ;  (dbgmessage "PROP-KEY-LIST %s" property-key-list)
-                                        ;  (dbgmessage "ELEMENT %s" (pp element))
-  (let ((property-list nil))
-    (dolist (key property-key-list property-list)
-      (when (org-element-property key element)
-        (setq property-list
-              (append (split-string (org-element-property key element) "," t)
-                      property-list))))))
-
-(defun org-gantt-create-id ()
-  "Create a unique id."
-  (setq *org-gantt-id-counter*
-        (+ 1 *org-gantt-id-counter*))
-  (concat "uniqueid"
-          (number-to-string *org-gantt-id-counter*)))
-
-(defun org-gantt-create-gantt-info (element)
-  "Create a gantt-info for ELEMENT.
-A gantt-info is a plist containing :name org-gantt-start-prop org-gantt-end-prop org-gantt-effort-prop :subelements"
-                                        ;  (dbgmessage "TITLEtype: %s" (type-of (cdr (org-element-property :title element))))
-                                        ;  (dbgmessage "TITLE: %s" (car (org-element-contents (org-element-property :title element))))
-  (let ((gantt-info-hash (make-hash-table)))
-    (puthash
-     :name (org-element-property :raw-value element)
-     gantt-info-hash)
-    (puthash :ordered (org-element-property :ORDERED element) gantt-info-hash)
-    (puthash org-gantt-start-prop (org-gantt-get-start-time element) gantt-info-hash)
-    (puthash org-gantt-end-prop (org-gantt-get-end-time element) gantt-info-hash)
-    (puthash org-gantt-effort-prop (or (org-gantt-get-effort
-                                        element :EFFORT)
-                                       (and (org-gantt-is-in-tags
-                                             (org-element-property :tags element)
-                                             (plist-get org-gantt-options :milestone-tags))
-                                            (seconds-to-time 0)))
-             gantt-info-hash)
-    (puthash org-gantt-stats-cookie-prop (org-gantt-statistics-value
-                                          (org-element-property :title element))
-             gantt-info-hash)
-    (puthash org-gantt-clocksum-prop (org-gantt-effort-to-time (org-element-property :CLOCKSUM element) 24) gantt-info-hash) ;clocksum is computed automatically with 24 hours per day, therefore we use 24.
-    (puthash org-gantt-tags-prop (org-element-property :tags element) gantt-info-hash)
-    (puthash org-gantt-id-prop (or (org-element-property :ID element)
-                                   (org-gantt-create-id))
-             gantt-info-hash)
-    (when (org-gantt-get-flattened-properties
-           element (plist-get org-gantt-options
-                              :linked-to-property-keys))
-      (dbgmessage "FLATTENED: %s" (org-gantt-get-flattened-properties
-                                element (plist-get org-gantt-options
-                                                   :linked-to-property-keys))))
-    (puthash org-gantt-linked-to-prop (org-gantt-get-flattened-properties
-                                       element (plist-get org-gantt-options
-                                                          :linked-to-property-keys))
-             gantt-info-hash)
-    (puthash org-gantt-trigger-prop (org-element-property :TRIGGER element) gantt-info-hash)
-    (puthash org-gantt-blocker-prop (org-element-property :BLOCKER element) gantt-info-hash)
-                                        ;        (org-gantt-get-effort element :CLOCKSUM)
-    (puthash :subelements (org-gantt-crawl-headlines (cdr element)) gantt-info-hash)
-    gantt-info-hash))
-
-(defun org-gantt-crawl-headlines (data)
-  "Crawl the parsed DATA and return a gantt-info-list from the headlines."
-  (let ((gantt-info-list
-         (org-element-map data 'headline #'org-gantt-create-gantt-info nil nil 'headline)))
-    gantt-info-list))
-
-(defun org-gantt-get-extreme-date-il (info-list time-getter time-comparer)
-  "Get the first or last date in INFO-LIST.
-TIME-GETTER is used to get the time in an info object.
-TIME-COMPARER is used to compare times, i.e. determine first or last.
-Returns the first element of the list `sort'ed according to TIME-COMPARER."
-  (let ((reslist nil))
-    (dolist (info info-list)
-      (setq
-       reslist
-       (cons (funcall time-getter info)
-             (cons
-              (org-gantt-get-extreme-date-il
-               (gethash :subelements info) time-getter time-comparer)
-              reslist))))
-    (car (sort reslist time-comparer))))
+; Additional parse functions moved to org-gantt-parse.el
 
 (defun org-gantt-timestamp-to-time (timestamp &optional use-end)
   "Convert a TIMESTAMP to an Emacs time.
