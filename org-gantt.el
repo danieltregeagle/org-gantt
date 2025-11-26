@@ -34,6 +34,25 @@
 (require 'ob-latex) ; for org-babel-execute:latex
 
 (require 'org-gantt-config)
+(require 'org-gantt-util)
+
+;; Aliases for backward compatibility during refactoring
+(defalias 'org-gantt-chomp 'org-gantt-util-chomp)
+(defalias 'org-gantt-gethash 'org-gantt-util-gethash)
+(defalias 'org-gantt-hashtable-equal 'org-gantt-util-hashtable-equal)
+(defalias 'org-gantt-equal 'org-gantt-util-equal)
+(defalias 'org-gantt-info-list-equal 'org-gantt-util-info-list-equal)
+(defalias 'org-gantt-substring-if 'org-gantt-util-substring-if)
+(defalias 'org-gantt-string-to-number 'org-gantt-util-string-to-number)
+(defalias 'org-gantt-time-less-p 'org-gantt-util-time-less-p)
+(defalias 'org-gantt-time-larger-p 'org-gantt-util-time-larger-p)
+(defalias 'org-gantt-time-difference 'org-gantt-util-time-difference)
+(defalias 'org-gantt-get-tags-style 'org-gantt-util-get-tags-style)
+(defalias 'org-gantt-is-in-tags 'org-gantt-util-is-in-tags)
+(defalias 'org-gantt-stats-cookie-to-progress 'org-gantt-util-stats-cookie-to-progress)
+(defalias 'org-gantt-plist-to-alist 'org-gantt-util-plist-to-alist)
+(defalias 'dbgmessage 'org-gantt-util-debug-message)
+
 (defvar org-gant-hours-per-day-gv nil
   "Global variable for local hours-per-day.")
 
