@@ -38,6 +38,7 @@
 (require 'org-gantt-util)
 (require 'org-gantt-time)
 (require 'org-gantt-parse)
+(require 'org-gantt-propagate)
 
 ;; Aliases for backward compatibility during refactoring
 (defalias 'org-gantt-chomp 'org-gantt-util-chomp)
@@ -203,6 +204,55 @@ Creates a temporary context using global org-gantt-options."
       result)))
 
 (defalias 'org-gantt-get-extreme-date-il 'org-gantt-parse-extreme-date)
+
+;; Propagation function compatibility wrappers (temporary during refactoring)
+(defun org-gantt-calculate-ds-from-effort (headline-list)
+  "Compatibility wrapper for org-gantt-propagate-ds-from-effort."
+  (let ((ctx (org-gantt-context-init (org-gantt-hours-per-day)
+                                     (plist-get org-gantt-options :work-free-days))))
+    (setf (org-gantt-context-info-list ctx) headline-list)
+    (org-gantt-propagate-ds-from-effort ctx)
+    (org-gantt-context-changed ctx)))
+
+(defun org-gantt-propagate-order-timestamps (headline-list &optional is-ordered parent-start parent-end)
+  "Compatibility wrapper for org-gantt-propagate-order-timestamps."
+  (let ((ctx (org-gantt-context-init (org-gantt-hours-per-day)
+                                     (plist-get org-gantt-options :work-free-days))))
+    (org-gantt-propagate--order-timestamps-list
+     headline-list is-ordered parent-start parent-end ctx)))
+
+(defalias 'org-gantt-find-headline-with-id 'org-gantt-propagate--find-by-id)
+
+(defun org-gantt-propagate-linked-to-timestamps (headline-list complete-headline-list)
+  "Compatibility wrapper for org-gantt-propagate-linked-to."
+  ;; This wrapper doesn't use context properly, so it won't populate link-hash
+  ;; The main function should use the context-based version
+  (let ((ctx (org-gantt-context-init (org-gantt-hours-per-day)
+                                     (plist-get org-gantt-options :work-free-days))))
+    (org-gantt-propagate--linked-to-recurse headline-list complete-headline-list ctx)))
+
+(defun org-gantt-propagate-ds-up (headline-list &optional ordered)
+  "Compatibility wrapper for org-gantt-propagate-dates-up."
+  (org-gantt-propagate--dates-up-list headline-list ordered))
+
+(defun org-gantt-propagate-summation-up (headline-list property subsum-getter &optional prioritize-subsums)
+  "Compatibility wrapper for org-gantt-propagate-summation-up."
+  (org-gantt-propagate--summation-up-list
+   headline-list property subsum-getter prioritize-subsums))
+
+(defalias 'org-gantt-get-subheadline-effort-sum 'org-gantt-propagate--effort-sum)
+
+(defalias 'org-gantt-get-subheadline-progress-summation 'org-gantt-propagate--progress-sum)
+
+(defun org-gantt-compute-progress (headline-list)
+  "Compatibility wrapper for org-gantt-propagate-compute-progress."
+  (org-gantt-propagate--compute-progress-list headline-list))
+
+(defun org-gantt-propagate-tags-down (headline-list parent-tags)
+  "Compatibility wrapper for org-gantt-propagate-tags-down."
+  (org-gantt-propagate--tags-down-list headline-list parent-tags))
+
+(defalias 'org-gantt-get-completion-percent 'org-gantt-propagate--completion-percent)
 
 (defvar org-gant-hours-per-day-gv nil
   "Global variable for local hours-per-day.")
@@ -480,276 +530,7 @@ STARTTIME is the time where the next bar starts."
       starttime)))
 
 
-(defun org-gantt-propagate-order-timestamps (headline-list &optional is-ordered parent-start parent-end)
-  "Propagate the times of headlines in HEADLINE-LIST that are ordered.
-Recursively apply to subheadlines.
-IS-ORDERED whether th(car headline-list) e current subheadlins are ordered.
-PARENT-START start time of the parent of the current subheadlines.
-PARENT-END end time of the parent of the current subheadlines.
-The optional parameters ore only required for the recursive calls
-from the function itself."
-  (let ((next-start (or (org-gantt-gethash org-gantt-start-prop (car headline-list)) parent-start))
-        (listitem headline-list)
-        (headline nil)
-        (is-changed nil))
-    (while listitem
-      (setq headline (car listitem))
-      (when is-ordered
-        (setq is-changed
-              (or is-changed
-                  (and next-start (not (org-gantt-gethash org-gantt-start-prop headline)))))
-        (puthash org-gantt-start-prop
-                 (or (org-gantt-gethash org-gantt-start-prop headline) next-start)
-                 headline)
-        (setq next-start (org-gantt-get-next-time (gethash org-gantt-end-prop headline)))
-        (setq is-changed
-              (or is-changed
-                  (and (if (cdr listitem)
-                           (org-gantt-get-prev-time
-                            (gethash org-gantt-start-prop (cadr listitem)))
-                         parent-end)
-                       (not (org-gantt-gethash org-gantt-end-prop headline)))))
-        (puthash org-gantt-end-prop
-                 (or (org-gantt-gethash org-gantt-end-prop headline)
-                     (if (cdr listitem)
-                         (org-gantt-get-prev-time
-                          (gethash org-gantt-start-prop (cadr listitem)))
-                       parent-end))
-                 headline))
-      (setq is-changed
-            (or
-             (org-gantt-propagate-order-timestamps
-              (gethash :subelements headline)
-              (or is-ordered (gethash :ordered headline))
-              (gethash org-gantt-start-prop headline)
-              (gethash org-gantt-end-prop headline))
-             is-changed))
-      (setq listitem (cdr listitem)))
-    is-changed))
-
-(defun org-gantt-find-headline-with-id (headline-list id)
-  "Return the first headline in HEADLINE-LIST with id ID.
-Is applied to subheadlines (depth-first)."
-  (and
-   headline-list
-   (let* ((headline (car headline-list))
-          (cur-id (gethash org-gantt-id-prop headline))
-          (subheadlines (gethash :subelements headline)))
-     (if (equal cur-id id)
-         headline
-       (or (org-gantt-find-headline-with-id subheadlines id)
-           (org-gantt-find-headline-with-id (cdr headline-list) id))))))
-
-(defun org-gantt-propagate-linked-to-timestamps (headline-list complete-headline-list)
-  "Propagate the end-times for linked-to headlines in HEADLINE-LIST.
-Propagates endtime of a headline as start line of its linked-to headlines,
-for all that do not already have start times.
-FIXME this is not working."
-  (dolist (headline headline-list headline-list)
-    (let ((linked-ids (gethash org-gantt-linked-to-prop headline))
-          (orig-id (gethash org-gantt-id-prop headline)))
-      (when linked-ids
-        (dbgmessage "FOUND ids %s" linked-ids))
-      (dolist (linked-id linked-ids)
-        (let ((found-headline
-               (org-gantt-find-headline-with-id complete-headline-list linked-id)))
-          (dbgmessage "FOUND headline %s" found-headline)
-          (when (and found-headline
-                     (not (gethash org-gantt-start-prop found-headline))
-                     (gethash org-gantt-end-prop headline))
-            (setq *org-gantt-changed-in-propagation* t)
-            (dbgmessage "PROPAGATING linked-to %s" found-headline)
-            (puthash
-             orig-id
-             (append (gethash orig-id *org-gantt-link-hash*) (list linked-id))
-             *org-gantt-link-hash*)
-            (puthash
-             org-gantt-start-prop
-             (org-gantt-get-next-time
-              (gethash org-gantt-end-prop headline))
-             found-headline))))
-      (org-gantt-propagate-linked-to-timestamps
-       (gethash :subelements headline) complete-headline-list))))
-
-(defun org-gantt-calculate-ds-from-effort (headline-list)
-  "Calculate deadline or schedule from effort in headlines of HEADLINE-LIST.
-If a deadline or schedule conflicts with the effort, keep value and warn.
-Recursively apply to subheadlines."
-  (let ((is-changed nil))
-    (dolist (headline headline-list is-changed)
-      (let ((start (gethash org-gantt-start-prop headline))
-            (end (gethash  org-gantt-end-prop headline))
-            (effort (gethash org-gantt-effort-prop headline)))
-        (cond ((and start end effort)
-               effort) ;;FIXME: Calculate if start, end, effort conflict and warn.
-              ((and start effort)
-               (puthash org-gantt-end-prop
-                        (org-gantt-change-worktime
-                         start effort
-                         #'time-add
-                         #'org-gantt-day-start
-                         #'org-gantt-day-end)
-                        headline)
-               (setq is-changed (or is-changed (gethash org-gantt-end-prop headline))))
-              ((and effort end)
-               (puthash org-gantt-start-prop
-                        (org-gantt-change-worktime
-                         end effort
-                         #'time-subtract
-                         #'org-gantt-day-end
-                         #'org-gantt-day-start)
-                        headline)
-               (setq is-changed (or is-changed (gethash org-gantt-start-prop headline)))))
-        (setq is-changed
-              (or (org-gantt-calculate-ds-from-effort
-                   (gethash :subelements headline))
-                  is-changed))))))
-
-(defun org-gantt-first-subheadline-start (headline)
-  "Gets the start time of the first subelement of HEADLINE (or its subelement)."
-  (and headline
-       (let ((first-sub (car (gethash :subelements headline))))
-         (or (org-gantt-gethash org-gantt-start-prop first-sub)
-             (org-gantt-get-subheadline-start first-sub t)))))
-
-(defun org-gantt-last-subheadline-end (headline)
-  "Gets the end time of the last subelement of HEADLINE (or its subelement)."
-  (and headline
-       (let ((last-sub (car (last (gethash :subelements headline)))))
-         (or (org-gantt-gethash org-gantt-end-prop last-sub)
-             (org-gantt-get-subheadline-end last-sub t)))))
-
-(defun org-gantt-get-subheadline-start (headline ordered)
-  "Gets the start time of HEADLINE.
-The start time is the start property iff it exists.
-It is the start of the first subheadline, if ORDERED is true.
-Otherwise it is the first start of all the subheadlines or their subheadlines."
-  (or (org-gantt-gethash org-gantt-start-prop headline)
-      (if ordered
-          (org-gantt-first-subheadline-start headline)
-        (org-gantt-subheadline-extreme
-         headline
-         #'org-gantt-time-less-p
-         (lambda (hl) (org-gantt-get-subheadline-start hl ordered))
-         (lambda (hl) (org-gantt-propagate-ds-up (gethash :subelements hl) ordered))))))
-
-(defun org-gantt-get-subheadline-end (headline ordered)
-  "Gets the end time of HEADLINE.
-The end time is the end property iff it exists.
-It is the end of the last subheadline, if ORDERED is true.
-Otherwise it is the last end of all the subheadlines or their subheadlines."
-  (or (org-gantt-gethash org-gantt-end-prop headline)
-      (if ordered
-          (org-gantt-last-subheadline-end headline)
-        (org-gantt-subheadline-extreme
-         headline
-         #'org-gantt-time-larger-p
-         (lambda (hl) (org-gantt-get-subheadline-end hl ordered))
-         (lambda (hl) (org-gantt-propagate-ds-up (gethash :subelements hl) ordered))))))
-
-
-(defun org-gantt-get-subheadline-effort-sum (headline)
-  "Get the sum of efforts of the subheadlines of HEADLINE."
-  (or (org-gantt-gethash org-gantt-effort-prop headline)
-      (let ((subelements (gethash :subelements headline))
-            (effort-sum (seconds-to-time 0)))
-                                        ;        (org-gantt-propagate-effort-up subelements)
-        (dolist (ch subelements effort-sum)
-          (setq effort-sum
-                (time-add effort-sum
-                          (org-gantt-get-subheadline-effort-sum ch)))))))
-
-(defun org-gantt-get-subheadline-progress-summation (headline calc-progress &optional prioritize-subsums)
-  "Compute the summation of the progress of the subheadlines of HEADLINE.
-The summation is weighted according to the effort of each subheadline.
-If CALC-PROGRESS is 'use-larger-100,
-subprogresses with an effort > 100 are used completely,
-otherwise, a subprogress is used as having a max effort of 100.
-If PRIORITIZE-SUBSUMS is non-nil, progress-summations are taken
-from subheadlines, even if a headline has a progress."
-  (let ((subelements (gethash :subelements headline))
-        (progress (gethash org-gantt-progress-prop headline))
-        (progress-sum nil)
-        (count 0))
-    (or (and (not prioritize-subsums)
-             (equal calc-progress 'use-larger-100)
-             progress)
-        (and (not prioritize-subsums)
-             progress
-             (min 100 progress))
-                                        ;        (org-gantt-propagate-summation-up subelements)
-        (dolist (ch subelements (and progress-sum count (round (/ progress-sum count))))
-          (let ((subsum (org-gantt-get-subheadline-progress-summation ch calc-progress prioritize-subsums))
-                (subeffort (time-to-seconds (gethash :effort ch))))
-            (setq count (+ count subeffort))
-                                        ;            (dbgmessage "ps: %s, ss: %s" progress-sum subsum)
-            (setq progress-sum
-                  (cond
-                   ((and progress-sum subsum)
-                    (+ progress-sum (* subeffort subsum)))
-                   (progress-sum progress-sum)
-                   (subsum (* subeffort subsum))
-                   (t nil)))))
-        (and (equal calc-progress 'use-larger-100)
-             progress)
-        (and  progress
-              (min 100 progress)))))
-
-(defun org-gantt-propagate-ds-up (headline-list &optional ordered)
-  "Propagate start and end time from subelements.
-HEADLINE-LIST the list of headlines where the propagation takes place.
-ORDERED determines whether the current list is ordered in recursive calls."
-  (dolist (headline headline-list headline-list)
-    (let* ((cur-ordered (or ordered (gethash :ordered headline)))
-           (start (gethash org-gantt-start-prop headline))
-           (end (gethash org-gantt-end-prop headline))
-           (subheadline-start (org-gantt-get-subheadline-start headline cur-ordered))
-           (subheadline-end (org-gantt-get-subheadline-end headline cur-ordered)))
-      (puthash org-gantt-start-prop
-               subheadline-start
-               headline)
-      (puthash org-gantt-end-prop
-               subheadline-end
-               headline)
-      (setq *org-gantt-changed-in-propagation*
-            (or *org-gantt-changed-in-propagation*
-                (not (equal start subheadline-start))
-                (not (equal end subheadline-end)))))))
-
-(defun org-gantt-propagate-summation-up (headline-list property subsum-getter &optional prioritize-subsums)
-  "Propagate summed efforts from subelements in HEADLINE-LIST.
-Get the efforts via PROPERTY.
-When the current headline does not have PROPERTY, or
-PRIORITIZE-SUBSUMS is non-nil, use SUBSUM-GETTER to get
-the summed effort from subelements."
-  (dolist (headline headline-list headline-list)
-    (let ((effort (gethash property headline)))
-      (when (or prioritize-subsums (not effort))
-        (puthash  property
-                  (funcall subsum-getter headline)
-                  headline)))))
-
-(defun org-gantt-propagate-tags-down (headline-list parent-tags)
-  "Propagate the tags of each headline into :parent-tag-prop of each subheadline
-and their subheadlines."
-  (dolist (headline headline-list headline-list)
-    (puthash org-gantt-parent-tags-prop parent-tags headline)
-    (org-gantt-propagate-tags-down
-     (gethash :subelements headline)
-     (append parent-tags (gethash org-gantt-tags-prop headline)))))
-
-(defun org-gantt-compute-progress (headline-list)
-  "Compute the progress (if possible) for the headlines in HEADLINE-LIST.
-Is recursively applied to subelements."
-  (dolist (headline headline-list headline-list)
-    (let ((effort (gethash org-gantt-effort-prop headline))
-          (clocksum (gethash org-gantt-clocksum-prop headline))
-          (subelements (gethash :subelements headline)))
-      (when (and effort clocksum)
-        (puthash org-gantt-progress-prop
-                 (org-gantt-get-completion-percent effort clocksum)
-                 headline))
-      (org-gantt-compute-progress subelements))))
+; Additional propagation-related functions moved to org-gantt-propagate.el
 
 (defun org-gantt-downcast-endtime (endtime)
   "Downcast ENDTIME to the previous day, if sensible.
@@ -800,13 +581,7 @@ to the start of the next day."
           (/ (float day) (float days-in-month))))
     0))
 
-(defun org-gantt-get-completion-percent (effort clocksum)
-  "Return the percentage of completion of EFFORT as measured by CLOCKSUM."
-  (if (and clocksum effort)
-      (let ((css (time-to-seconds clocksum))
-            (es (time-to-seconds effort)))
-        (if (> es 0) (round (* 100  (/ css es)))  0))
-    0))
+; org-gantt-get-completion-percent moved to org-gantt-propagate.el
 
 (defun org-gantt-get-shifts (up-start down-end compress &optional subelements)
   "Return the string describing the shift for pgf-gantt.
@@ -1243,32 +1018,26 @@ PARAMS determine several options of the gantt chart."
                     compress
                     :maxlevel
                     (or (plist-get params :maxlevel) org-gantt-default-maxlevel)))
-        (setq org-gantt-info-list (org-gantt-crawl-headlines parsed-data))
-        (when (not parsed-data)
-          (error "Could not find element with :ID: %s" id))
-        (while *org-gantt-changed-in-propagation*
-          (setq *org-gantt-changed-in-propagation* nil)
-          (setq *org-gantt-changed-in-propagation*
-                (org-gantt-calculate-ds-from-effort org-gantt-info-list))
-          (setq *org-gantt-changed-in-propagation*
-                (or (org-gantt-propagate-order-timestamps org-gantt-info-list)
-                    *org-gantt-changed-in-propagation*))
-          (org-gantt-propagate-ds-up org-gantt-info-list)
-          (org-gantt-propagate-linked-to-timestamps
-           org-gantt-info-list org-gantt-info-list))
-                                        ;        (dbgmessage "IL2 %s" (pp org-gantt-info-list))
-        (org-gantt-propagate-summation-up
-         org-gantt-info-list
-         org-gantt-effort-prop
-         #'org-gantt-get-subheadline-effort-sum)
-        (org-gantt-compute-progress org-gantt-info-list)
-                                        ;        (dbgmessage "%s" (pp org-gantt-info-list))
-        (org-gantt-propagate-summation-up
-         org-gantt-info-list
-         org-gantt-progress-prop
-         (lambda (hl) (org-gantt-get-subheadline-progress-summation hl calc-progress t))
-         t)
-        (org-gantt-propagate-tags-down org-gantt-info-list nil)
+        ;; Create context for propagation
+        (let ((ctx (org-gantt-context-init (org-gantt-hours-per-day)
+                                           (plist-get org-gantt-options :work-free-days))))
+          (setf (org-gantt-context-options ctx) org-gantt-options)
+          (setf (org-gantt-context-id-counter ctx) *org-gantt-id-counter*)
+          (setf (org-gantt-context-changed ctx) t)  ; Initialize to enter loop
+
+          ;; Parse headlines and store in context
+          (setq org-gantt-info-list (org-gantt-crawl-headlines parsed-data))
+          (when (not parsed-data)
+            (error "Could not find element with :ID: %s" id))
+          (setf (org-gantt-context-info-list ctx) org-gantt-info-list)
+
+          ;; Run all propagation phases
+          (org-gantt-propagate-all ctx)
+
+          ;; Update global state from context
+          (setq org-gantt-info-list (org-gantt-context-info-list ctx))
+          (setq *org-gantt-link-hash* (org-gantt-context-link-hash ctx))
+          (setq *org-gantt-id-counter* (org-gantt-context-id-counter ctx)))
                                         ;	(dbgmessage "%s" (pp org-gantt-info-list))
         (setq start-date-time
               (or start-date-time
