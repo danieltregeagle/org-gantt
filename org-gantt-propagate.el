@@ -107,27 +107,40 @@ If a headline has effort and either start or end, calculate the missing one."
           nil) ;; FIXME: Calculate if start, end, effort conflict and warn
          ;; Have start and effort, calculate end
          ((and start effort)
-          (puthash org-gantt-end-prop
-                   (org-gantt-time-change-worktime
-                    start effort
-                    #'time-add
-                    (lambda (time hpd) (org-gantt-time-day-start time hpd))
-                    (lambda (time hpd) (org-gantt-time-day-end time hpd))
-                    hours-per-day
-                    work-free-days)
-                   headline)
+          (let* ((dt (decode-time start))
+                 (hours (nth 2 dt))
+                 (minutes (nth 1 dt))
+                 ;; If start is at midnight, treat as end of that day for effort calc
+                 (adjusted-start (if (and (= 0 hours) (= 0 minutes))
+                                    (time-add start (seconds-to-time (* 3600 hours-per-day)))
+                                  start)))
+            (puthash org-gantt-end-prop
+                     (org-gantt-time-change-worktime
+                      adjusted-start effort
+                      #'time-add
+                      (lambda (time hpd) (org-gantt-time-day-start time hpd))
+                      (lambda (time hpd) (org-gantt-time-day-end time hpd))
+                      hours-per-day
+                      work-free-days)
+                     headline))
           (setq is-changed (or is-changed (gethash org-gantt-end-prop headline))))
          ;; Have end and effort, calculate start
          ((and effort end)
-          (puthash org-gantt-start-prop
-                   (org-gantt-time-change-worktime
-                    end effort
-                    #'time-subtract
-                    (lambda (time hpd) (org-gantt-time-day-end time hpd))
-                    (lambda (time hpd) (org-gantt-time-day-start time hpd))
-                    hours-per-day
-                    work-free-days)
-                   headline)
+          (let* ((result-start (org-gantt-time-change-worktime
+                                end effort
+                                #'time-subtract
+                                (lambda (time hpd) (org-gantt-time-day-end time hpd))
+                                (lambda (time hpd) (org-gantt-time-day-start time hpd))
+                                hours-per-day
+                                work-free-days))
+                 (dt (decode-time result-start))
+                 (hours (nth 2 dt))
+                 (minutes (nth 1 dt))
+                 ;; If result is at midnight, it should be at end of previous day
+                 (adjusted-start (if (and (= 0 hours) (= 0 minutes))
+                                    (time-subtract result-start (seconds-to-time (* 3600 (- 24 hours-per-day))))
+                                  result-start)))
+            (puthash org-gantt-start-prop adjusted-start headline))
           (setq is-changed (or is-changed (gethash org-gantt-start-prop headline)))))
         ;; Recurse to children
         (setq is-changed

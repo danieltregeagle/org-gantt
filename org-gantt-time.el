@@ -173,7 +173,7 @@ Returns the new time."
   (let* ((day-end (funcall day-end-getter time hours-per-day))
          (rest-time (org-gantt-util-time-difference day-end time))
          (one-day (days-to-time 1)))
-    (if (time-less-p change-time rest-time)
+    (if (not (time-less-p rest-time change-time))
         ;; Change fits in current day
         (funcall time-changer time change-time)
       ;; Need to span multiple days

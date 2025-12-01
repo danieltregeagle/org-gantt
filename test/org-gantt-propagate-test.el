@@ -137,8 +137,15 @@
 (ert-deftest org-gantt-propagate-test-linked-to ()
   "Test that LINKED-TO creates entries in link hash."
   (let* ((ctx (org-gantt-test-parse-and-propagate
-               (concat "* Task A\n:PROPERTIES:\n:ID: task-a\nEFFORT: 2d\n:END:\n"
-                       "SCHEDULED: <2025-01-06 Mon>\n"
+               (concat "* Task A
+SCHEDULED: <2025-01-06 Mon>
+:PROPERTIES:
+:ID: task-a
+:EFFORT: 2d
+:END:
+"
+                       ":EFFORT: 2d
+:END:\n"
                        "* Task B\n:PROPERTIES:\n:LINKED-TO: task-a\n:END:\n")))
          (link-hash (org-gantt-context-link-hash ctx)))
     ;; There should be a link from task-a to the generated ID of task-b
