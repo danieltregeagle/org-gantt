@@ -144,8 +144,6 @@ SCHEDULED: <2025-01-06 Mon>
 :EFFORT: 2d
 :END:
 "
-                       ":EFFORT: 2d
-:END:\n"
                        "* Task B\n:PROPERTIES:\n:LINKED-TO: task-a\n:END:\n")))
          (link-hash (org-gantt-context-link-hash ctx)))
     ;; There should be a link from task-a to the generated ID of task-b

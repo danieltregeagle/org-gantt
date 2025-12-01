@@ -258,18 +258,18 @@ CTX is the org-gantt-context."
                  (org-gantt-propagate--find-by-id complete-list linked-id)))
             (org-gantt-util-debug-message "FOUND headline %s" found-headline)
             (when (and found-headline
-                       (not (gethash org-gantt-start-prop found-headline))
-                       (gethash org-gantt-end-prop headline))
+                       (not (gethash org-gantt-start-prop headline))
+                       (gethash org-gantt-end-prop found-headline))
               (org-gantt-context-mark-changed ctx)
-              (org-gantt-util-debug-message "PROPAGATING linked-to %s" found-headline)
-              (org-gantt-context-add-link ctx orig-id linked-id)
+              (org-gantt-util-debug-message "PROPAGATING linked-to %s" headline)
+              (org-gantt-context-add-link ctx linked-id orig-id)
               (puthash
                org-gantt-start-prop
                (org-gantt-time-next-start
-                (gethash org-gantt-end-prop headline)
+                (gethash org-gantt-end-prop found-headline)
                 hours-per-day
                 work-free-days)
-               found-headline))))
+               headline))))
         (org-gantt-propagate--linked-to-recurse
          (gethash :subelements headline) complete-list ctx)))))
 
