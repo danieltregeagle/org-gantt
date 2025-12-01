@@ -111,8 +111,8 @@ If a headline has effort and either start or end, calculate the missing one."
                    (org-gantt-time-change-worktime
                     start effort
                     #'time-add
-                    (lambda (time) (org-gantt-time-day-start time hours-per-day))
-                    (lambda (time) (org-gantt-time-day-end time hours-per-day))
+                    (lambda (time hpd) (org-gantt-time-day-start time hpd))
+                    (lambda (time hpd) (org-gantt-time-day-end time hpd))
                     hours-per-day
                     work-free-days)
                    headline)
@@ -123,8 +123,8 @@ If a headline has effort and either start or end, calculate the missing one."
                    (org-gantt-time-change-worktime
                     end effort
                     #'time-subtract
-                    (lambda (time) (org-gantt-time-day-end time hours-per-day))
-                    (lambda (time) (org-gantt-time-day-start time hours-per-day))
+                    (lambda (time hpd) (org-gantt-time-day-end time hpd))
+                    (lambda (time hpd) (org-gantt-time-day-start time hpd))
                     hours-per-day
                     work-free-days)
                    headline)
@@ -284,11 +284,11 @@ Otherwise it is the first start of all the subheadlines or their subheadlines."
   (or (org-gantt-util-gethash org-gantt-start-prop headline)
       (if ordered
           (org-gantt-propagate--first-child-start headline)
-        (org-gantt-parse-subheadline-extreme
+        (org-gantt-propagate--extreme-in-children
          headline
          #'org-gantt-util-time-less-p
-         (lambda (hl) (org-gantt-propagate--aggregate-start hl ordered))
-         (lambda (hl) (org-gantt-propagate--dates-up-list (gethash :subelements hl) ordered))))))
+         #'org-gantt-propagate--aggregate-start
+         ordered))))
 
 (defun org-gantt-propagate--aggregate-end (headline ordered)
   "Gets the end time of HEADLINE.
@@ -298,11 +298,28 @@ Otherwise it is the last end of all the subheadlines or their subheadlines."
   (or (org-gantt-util-gethash org-gantt-end-prop headline)
       (if ordered
           (org-gantt-propagate--last-child-end headline)
-        (org-gantt-parse-subheadline-extreme
+        (org-gantt-propagate--extreme-in-children
          headline
          #'org-gantt-util-time-larger-p
-         (lambda (hl) (org-gantt-propagate--aggregate-end hl ordered))
-         (lambda (hl) (org-gantt-propagate--dates-up-list (gethash :subelements hl) ordered))))))
+         #'org-gantt-propagate--aggregate-end
+         ordered))))
+
+
+(defun org-gantt-propagate--extreme-in-children (headline comparator time-getter ordered)
+  "Find extreme (min/max) time among children of HEADLINE.
+COMPARATOR determines min (#\='org-gantt-util-time-less-p) or
+max (#\='org-gantt-util-time-larger-p).
+TIME-GETTER recursively extracts time from each child.
+ORDERED controls whether to use ordered semantics in recursion.
+Returns the extreme time value or nil if no children have times."
+  (when headline
+    (let ((children (gethash :subelements headline)))
+      (when children
+        (let ((times (delq nil (mapcar (lambda (child)
+                                         (funcall time-getter child ordered))
+                                       children))))
+          (when times
+            (car (sort times comparator))))))))
 
 (defun org-gantt-propagate-dates-up (ctx)
   "Propagate start and end time from subelements in CTX."

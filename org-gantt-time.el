@@ -100,8 +100,9 @@ Does not consider holidays."
   (let ((dow (string-to-number (format-time-string "%w" time))))
     (not (member dow work-free-days))))
 
-(defun org-gantt-time-day-start (time)
-  "Return the start of the day containing TIME (midnight)."
+(defun org-gantt-time-day-start (time &optional hours-per-day)
+  "Return the start of the day containing TIME (midnight).
+HOURS-PER-DAY is ignored but accepted for interface consistency."
   (let ((dt (decode-time time)))
     (encode-time 0 0 0 (nth 3 dt) (nth 4 dt) (nth 5 dt))))
 
