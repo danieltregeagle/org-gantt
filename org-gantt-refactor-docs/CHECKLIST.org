@@ -96,6 +96,22 @@ Session 3:
 - [ ] Regression test passes
 - [ ] Committed: =git commit -m "Phase 6 complete"=
 
+
+** MANDATORY VERIFICATION GATES (ALL MUST PASS)
+- [ ] Byte-compiles with 0 NEW errors or warnings (existing warnings acceptable)
+- [ ] ALL propagation tests pass (0 unexpected failures)
+      - [ ] org-gantt-propagate-test-ds-from-effort-forward
+      - [ ] org-gantt-propagate-test-ds-from-effort-backward
+      - [ ] org-gantt-propagate-test-ordered-sequential
+      - [ ] org-gantt-propagate-test-dates-up
+      - [ ] org-gantt-propagate-test-effort-sum
+      - [ ] org-gantt-propagate-test-progress-from-clocksum
+      - [ ] org-gantt-propagate-test-tags-down
+      - [ ] org-gantt-propagate-test-linked-to
+      - [ ] org-gantt-propagate-test-convergence
+- [ ] Regression test produces identical output
+- [ ] Committed ONLY after all above pass
+
 * Phase 7: Extract Render Module
 Date started: _______ Date completed: _______
 

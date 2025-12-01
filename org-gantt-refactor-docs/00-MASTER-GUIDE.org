@@ -68,10 +68,33 @@ For each phase:
 1. *Commit current state*: =git add -A && git commit -m "Before phase N"=
 2. *Run Claude Code* with the phase prompt file
 3. *Review output* before accepting changes
-4. *Run verification tests*: =make test-phase-N= or manual ERT
-5. *Run regression test*: Verify sample-gantt.org still produces correct output
-6. *Commit if passing*: =git add -A && git commit -m "Complete phase N"=
-7. *If failing*: =git checkout .= and retry or debug
+
+** MANDATORY VERIFICATION (DO NOT SKIP)
+
+4. *Byte-compile test*: =emacs -batch -L . -f batch-byte-compile <module>.el=
+   - MUST show 0 NEW errors or warnings (existing warnings are acceptable)
+   - If new errors/warnings appear: fix them before proceeding
+
+5. *Run unit tests*: =emacs -batch -L . -L test -l ert -l test/<module>-test.el -f ert-run-tests-batch-and-exit=
+   - MUST show "X results as expected, 0 unexpected"
+   - If ANY tests fail: fix the code, do NOT commit
+   - If tests themselves are buggy: fix the tests first
+
+6. *Run regression test*: Verify sample-gantt.org still produces correct output
+   - MUST produce identical output to baseline
+   - If failing: fix the regression before proceeding
+
+** COMMIT ONLY IF ALL TESTS PASS
+
+7. *Commit if and only if passing*: =git add -A && git commit -m "Complete phase N: <description>"=
+   - Commit message must include what was accomplished
+   - Do NOT commit if any test is failing
+
+8. *If failing*:
+   - Debug and fix the code
+   - Re-run all verification steps (4-6)
+   - Only commit when everything passes
+   - If stuck: =git checkout .= and retry the phase or seek help
 
 
 * Debugging Test Failures

@@ -499,6 +499,15 @@ The following global variables no longer exist:
 - [ ] Documentation complete
 - [ ] Migration guide created
 
+
+** MANDATORY VERIFICATION (MUST ALL PASS)
+- [ ] File(s) byte-compile with 0 NEW errors or warnings (existing warnings acceptable)
+- [ ] ALL tests pass (0 unexpected failures)
+- [ ] Regression test produces byte-identical output to baseline
+
+** COMMIT GATE
+- [ ] DO NOT COMMIT until all verification criteria above are met
+
 * Completion
 
 Congratulations! The refactoring is complete when all criteria pass.

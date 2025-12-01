@@ -544,6 +544,15 @@ make regression
 - [ ] All tests pass
 - [ ] Regression test passes
 
+
+** MANDATORY VERIFICATION (MUST ALL PASS)
+- [ ] File(s) byte-compile with 0 NEW errors or warnings (existing warnings acceptable)
+- [ ] ALL tests pass (0 unexpected failures)
+- [ ] Regression test produces byte-identical output to baseline
+
+** COMMIT GATE
+- [ ] DO NOT COMMIT until all verification criteria above are met
+
 * Next Phase
 
 Once all criteria pass, proceed to [[file:10-phase-integration.org][Phase 9: Integration & Cleanup]].

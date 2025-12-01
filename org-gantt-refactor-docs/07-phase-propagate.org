@@ -606,6 +606,16 @@ make regression
 - [ ] All propagation tests pass
 - [ ] Regression test passes
 
+
+** MANDATORY VERIFICATION (MUST ALL PASS)
+- [ ] File byte-compiles with 0 NEW errors or warnings (existing warnings acceptable)
+- [ ] ALL 9 propagation tests pass (0 unexpected failures)
+- [ ] Regression test produces byte-identical output to baseline
+
+** COMMIT GATE
+- [ ] DO NOT COMMIT until all verification criteria above are met
+- [ ] If any test fails, debug and fix before committing
+
 * Next Phase
 
 Once all criteria pass, proceed to [[file:08-phase-render.org][Phase 7: Extract Render Module]].
